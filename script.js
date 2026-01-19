@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let cellXfs = [];          // 单元格格式定义
     let sharedStrings = [];    // 共享字符串
     let numFmts = {};          // 数字格式
+    let currentMaxCol = 0;     // 当前工作表最大列数（用于外侧边框处理）
 
     // 默认主题颜色
     const DEFAULT_THEME = {
@@ -491,14 +492,20 @@ document.addEventListener('DOMContentLoaded', () => {
             table.style.fontWeight = getFontWeight(fonts[0].name, fonts[0].bold);
         }
         
-        // 获取列宽
+        // 获取列宽与列样式
         const colWidths = {};
+        const colStyles = {};
         doc.querySelectorAll('col').forEach(col => {
             const min = parseInt(col.getAttribute('min'));
             const max = parseInt(col.getAttribute('max'));
             const width = parseFloat(col.getAttribute('width')) || 8.43;
+            const styleAttr = col.getAttribute('style') || col.getAttribute('s');
+            const styleIndex = styleAttr !== null ? parseInt(styleAttr) : null;
             for (let i = min; i <= max; i++) {
                 colWidths[i] = width;
+                if (!Number.isNaN(styleIndex) && styleIndex !== null) {
+                    colStyles[i] = styleIndex;
+                }
             }
         });
         
@@ -540,6 +547,35 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         maxCol = Math.min(maxCol, 100);
+        currentMaxCol = maxCol;
+
+        // 预构建行样式与单元格样式索引映射
+        const rowStyleMap = {};
+        const cellStyleMap = new Map();
+        rows.forEach(rowElem => {
+            const rowNum = parseInt(rowElem.getAttribute('r'));
+            const rowStyleAttr = rowElem.getAttribute('s');
+            if (rowStyleAttr !== null) {
+                const idx = parseInt(rowStyleAttr);
+                if (!Number.isNaN(idx)) rowStyleMap[rowNum] = idx;
+            }
+            rowElem.querySelectorAll('c').forEach(c => {
+                const ref = cellRef(c.getAttribute('r'));
+                const sAttr = c.getAttribute('s');
+                if (sAttr !== null) {
+                    const sIdx = parseInt(sAttr);
+                    if (!Number.isNaN(sIdx)) cellStyleMap.set(`${ref.r},${ref.c}`, sIdx);
+                }
+            });
+        });
+
+        const resolveStyleIndex = (r, c) => {
+            const cellKey = `${r},${c}`;
+            if (cellStyleMap.has(cellKey)) return cellStyleMap.get(cellKey);
+            if (rowStyleMap[r] !== undefined) return rowStyleMap[r];
+            if (colStyles[c] !== undefined) return colStyles[c];
+            return null;
+        };
         
         // 表头（列标题 A, B, C...）
         const thead = document.createElement('thead');
@@ -656,8 +692,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 const cellElem = cellMap[c];
+                const resolvedStyleIndex = resolveStyleIndex(rowNum, c);
+
                 if (cellElem) {
-                    renderCell(td, cellElem);
+                    renderCell(td, cellElem, resolvedStyleIndex, rowNum, c, resolveStyleIndex);
+                } else if (resolvedStyleIndex !== null && !Number.isNaN(resolvedStyleIndex)) {
+                    // 空单元格也要应用样式（尤其是边框）
+                    renderCell(td, null, resolvedStyleIndex, rowNum, c, resolveStyleIndex);
+                }
+
+                // 合并单元格需要合并范围的边框应用到主单元格
+                if (merge && merge.isMaster) {
+                    applyMergedBorders(td, rowNum, c, merge, resolveStyleIndex);
                 }
                 
                 // 冻结行的单元格需要确保有背景色（防止内容透视）
@@ -701,127 +747,245 @@ document.addEventListener('DOMContentLoaded', () => {
         cellInfo.textContent = `${lastRow} 行 × ${maxCol} 列`;
     }
 
-    function renderCell(td, cellElem) {
-        // 获取样式索引
-        const styleIndex = parseInt(cellElem.getAttribute('s')) || 0;
-        const cellStyle = cellXfs[styleIndex];
+    function renderCell(td, cellElem, styleIndex, rowNum, colNum, resolveStyleIndex) {
+        const resolvedStyleIndex = (styleIndex !== undefined && styleIndex !== null && !Number.isNaN(styleIndex))
+            ? styleIndex
+            : (cellElem && cellElem.getAttribute('s') !== null)
+                ? parseInt(cellElem.getAttribute('s')) || 0
+                : 0;
+        const cellStyle = cellXfs[resolvedStyleIndex];
         
-        // 获取值
-        const type = cellElem.getAttribute('t');
-        const vElem = cellElem.querySelector('v');
-        let value = vElem ? vElem.textContent : '';
-        
-        // 处理共享字符串
-        if (type === 's' && value) {
-            const idx = parseInt(value);
-            value = sharedStrings[idx] || '';
-        }
-        
-        // 处理布尔值
-        if (type === 'b') {
-            value = value === '1' ? 'TRUE' : 'FALSE';
-        }
-        
-        // 处理数字格式
-        if (!type || type === 'n') {
-            const numVal = parseFloat(value);
-            if (!isNaN(numVal) && cellStyle) {
-                const fmtId = cellStyle.numFmtId;
-                value = formatNumber(numVal, fmtId);
-            }
-            td.classList.add('cell-number');
-        }
-        
-        td.textContent = value;
-        
-        // === 应用样式 ===
-        if (cellStyle) {
-            // 字体
-            const font = fonts[cellStyle.fontId];
-            if (font) {
-                // 获取字体名称（如果没有指定，使用默认字体的名称）
-                const fontName = font.name || (fonts[0] && fonts[0].name) || '等线';
-                
-                // 字体族（根据是否粗体选择合适的字体变体）
-                td.style.fontFamily = getFontFamily(fontName, font.bold);
-                
-                // 字体大小
-                if (font.size) {
-                    td.style.fontSize = font.size + 'pt';
-                }
-                
-                // 字体粗细
-                td.style.fontWeight = getFontWeight(fontName, font.bold);
-                
-                // 斜体
-                if (font.italic) {
-                    td.style.fontStyle = 'italic';
-                }
-                
-                // 下划线
-                if (font.underline) {
-                    td.style.textDecoration = 'underline';
-                }
-                
-                // 删除线
-                if (font.strike) {
-                    td.style.textDecoration = (td.style.textDecoration || '') + ' line-through';
-                }
-                
-                // 颜色
-                if (font.color) {
-                    const color = resolveColor(font.color);
-                    if (color) td.style.color = color;
-                }
+        if (cellElem) {
+            // 获取值
+            const type = cellElem.getAttribute('t');
+            const vElem = cellElem.querySelector('v');
+            let value = vElem ? vElem.textContent : '';
+            
+            // 处理共享字符串
+            if (type === 's' && value) {
+                const idx = parseInt(value);
+                value = sharedStrings[idx] || '';
             }
             
-            // 填充（背景色）
-            const fill = fills[cellStyle.fillId];
-            if (fill && fill.type === 'pattern' && fill.pattern === 'solid') {
-                if (fill.fgColor) {
-                    const bgColor = resolveColor(fill.fgColor);
-                    if (bgColor) td.style.backgroundColor = bgColor;
-                }
+            // 处理布尔值
+            if (type === 'b') {
+                value = value === '1' ? 'TRUE' : 'FALSE';
             }
             
-            // 边框
-            const border = borders[cellStyle.borderId];
-            if (border) {
-                ['top', 'right', 'bottom', 'left'].forEach(side => {
-                    if (border[side] && border[side].style) {
-                        const bs = border[side];
-                        let w = '1px', s = 'solid';
-                        switch (bs.style) {
-                            case 'thin': w = '1px'; break;
-                            case 'medium': w = '2px'; break;
-                            case 'thick': w = '3px'; break;
-                            case 'dotted': s = 'dotted'; break;
-                            case 'dashed': s = 'dashed'; break;
-                            case 'double': s = 'double'; w = '3px'; break;
-                        }
-                        const c = bs.color ? resolveColor(bs.color) : '#000';
-                        td.style[`border${side.charAt(0).toUpperCase() + side.slice(1)}`] = `${w} ${s} ${c}`;
+            // 处理数字格式
+            if (!type || type === 'n') {
+                const numVal = parseFloat(value);
+                if (!isNaN(numVal) && cellStyle) {
+                    const fmtId = cellStyle.numFmtId;
+                    value = formatNumber(numVal, fmtId);
+                }
+                td.classList.add('cell-number');
+            }
+            
+            td.textContent = value;
+        }
+        
+        // === 应用样式（无论是否有值） ===
+        applyCellStyle(td, cellStyle, rowNum, colNum, resolveStyleIndex);
+    }
+
+    function applyCellStyle(td, cellStyle, rowNum, colNum, resolveStyleIndex) {
+        if (!cellStyle) return;
+        
+        // 字体
+        const font = fonts[cellStyle.fontId];
+        if (font) {
+            const fontName = font.name || (fonts[0] && fonts[0].name) || '等线';
+            td.style.fontFamily = getFontFamily(fontName, font.bold);
+            if (font.size) td.style.fontSize = font.size + 'pt';
+            td.style.fontWeight = getFontWeight(fontName, font.bold);
+            if (font.italic) td.style.fontStyle = 'italic';
+            if (font.underline) td.style.textDecoration = 'underline';
+            if (font.strike) td.style.textDecoration = (td.style.textDecoration || '') + ' line-through';
+            if (font.color) {
+                const color = resolveColor(font.color);
+                if (color) td.style.color = color;
+            }
+        }
+        
+        // 填充（背景色）
+        const fill = fills[cellStyle.fillId];
+        if (fill && fill.type === 'pattern') {
+            if (fill.pattern === 'solid' && fill.fgColor) {
+                const bgColor = resolveColor(fill.fgColor);
+                if (bgColor) td.style.backgroundColor = bgColor;
+            } else if (fill.fgColor) {
+                const bgColor = resolveColor(fill.fgColor);
+                if (bgColor) td.style.backgroundColor = bgColor;
+            }
+        }
+        
+        // 边框
+        const border = borders[cellStyle.borderId];
+        const applyBorderSide = (side, bs) => {
+            if (!bs || !bs.style) return;
+            // 忽略外侧列边框（第1列左边、最后一列右边）
+            if (side === 'left' && colNum === 1) return;
+            if (side === 'right' && currentMaxCol && colNum === currentMaxCol) return;
+            let w = '1px', s = 'solid';
+            switch (bs.style) {
+                case 'thin': w = '1px'; break;
+                case 'medium': w = '2px'; break;
+                case 'thick': w = '3px'; break;
+                case 'hair': w = '0.5px'; break;
+                case 'dotted': s = 'dotted'; break;
+                case 'dashed': s = 'dashed'; break;
+                case 'double': s = 'double'; w = '3px'; break;
+            }
+            const c = bs.color ? resolveColor(bs.color) : '#000';
+            td.style[`border${side.charAt(0).toUpperCase() + side.slice(1)}`] = `${w} ${s} ${c}`;
+        };
+
+        if (border) {
+            ['top', 'right', 'bottom', 'left'].forEach(side => {
+                applyBorderSide(side, border[side]);
+            });
+        }
+
+        // 如果当前单元格缺少边框，尝试从相邻单元格补齐
+        if (typeof resolveStyleIndex === 'function') {
+            // 左侧邻居的右边框
+            if (!td.style.borderLeft && colNum > 1) {
+                const leftStyleIdx = resolveStyleIndex(rowNum, colNum - 1);
+                if (leftStyleIdx !== null && leftStyleIdx !== undefined) {
+                    const leftStyle = cellXfs[leftStyleIdx];
+                    const leftBorder = leftStyle ? borders[leftStyle.borderId] : null;
+                    if (leftBorder && leftBorder.right) {
+                        applyBorderSide('left', leftBorder.right);
                     }
-                });
+                }
             }
-            
-            // 对齐
-            if (cellStyle.alignment) {
-                const a = cellStyle.alignment;
-                if (a.horizontal) {
-                    const map = { left: 'left', center: 'center', right: 'right', justify: 'justify' };
-                    td.style.textAlign = map[a.horizontal] || a.horizontal;
+            // 右侧邻居的左边框
+            if (!td.style.borderRight) {
+                const rightStyleIdx = resolveStyleIndex(rowNum, colNum + 1);
+                if (rightStyleIdx !== null && rightStyleIdx !== undefined) {
+                    const rightStyle = cellXfs[rightStyleIdx];
+                    const rightBorder = rightStyle ? borders[rightStyle.borderId] : null;
+                    if (rightBorder && rightBorder.left) {
+                        applyBorderSide('right', rightBorder.left);
+                    }
                 }
-                if (a.vertical) {
-                    const map = { top: 'top', center: 'middle', bottom: 'bottom' };
-                    td.style.verticalAlign = map[a.vertical] || 'bottom';
+            }
+            // 上方邻居的下边框
+            if (!td.style.borderTop && rowNum > 1) {
+                const topStyleIdx = resolveStyleIndex(rowNum - 1, colNum);
+                if (topStyleIdx !== null && topStyleIdx !== undefined) {
+                    const topStyle = cellXfs[topStyleIdx];
+                    const topBorder = topStyle ? borders[topStyle.borderId] : null;
+                    if (topBorder && topBorder.bottom) {
+                        applyBorderSide('top', topBorder.bottom);
+                    }
                 }
-                if (a.wrapText) {
-                    td.style.whiteSpace = 'pre-wrap';
-                    td.style.wordBreak = 'break-word';
+            }
+            // 下方邻居的上边框
+            if (!td.style.borderBottom) {
+                const bottomStyleIdx = resolveStyleIndex(rowNum + 1, colNum);
+                if (bottomStyleIdx !== null && bottomStyleIdx !== undefined) {
+                    const bottomStyle = cellXfs[bottomStyleIdx];
+                    const bottomBorder = bottomStyle ? borders[bottomStyle.borderId] : null;
+                    if (bottomBorder && bottomBorder.top) {
+                        applyBorderSide('bottom', bottomBorder.top);
+                    }
                 }
-                if (a.indent) {
-                    td.style.paddingLeft = (a.indent * 10) + 'px';
+            }
+        }
+        
+        // 对齐
+        if (cellStyle.alignment) {
+            const a = cellStyle.alignment;
+            if (a.horizontal) {
+                const map = { left: 'left', center: 'center', right: 'right', justify: 'justify' };
+                td.style.textAlign = map[a.horizontal] || a.horizontal;
+            }
+            if (a.vertical) {
+                const map = { top: 'top', center: 'middle', bottom: 'bottom' };
+                td.style.verticalAlign = map[a.vertical] || 'bottom';
+            }
+            if (a.wrapText) {
+                td.style.whiteSpace = 'pre-wrap';
+                td.style.wordBreak = 'break-word';
+            }
+            if (a.indent) {
+                td.style.paddingLeft = (a.indent * 10) + 'px';
+            }
+        }
+    }
+
+    function applyMergedBorders(td, rowNum, colNum, merge, resolveStyleIndex) {
+        const startRow = rowNum;
+        const startCol = colNum;
+        const endRow = rowNum + merge.rowspan - 1;
+        const endCol = colNum + merge.colspan - 1;
+
+        const applyBorderSide = (side, bs) => {
+            if (!bs || !bs.style) return;
+            // 忽略外侧列边框（第1列左边、最后一列右边）
+            if (side === 'left' && startCol === 1) return;
+            if (side === 'right' && currentMaxCol && endCol === currentMaxCol) return;
+            let w = '1px', s = 'solid';
+            switch (bs.style) {
+                case 'thin': w = '1px'; break;
+                case 'medium': w = '2px'; break;
+                case 'thick': w = '3px'; break;
+                case 'hair': w = '0.5px'; break;
+                case 'dotted': s = 'dotted'; break;
+                case 'dashed': s = 'dashed'; break;
+                case 'double': s = 'double'; w = '3px'; break;
+            }
+            const c = bs.color ? resolveColor(bs.color) : '#000';
+            td.style[`border${side.charAt(0).toUpperCase() + side.slice(1)}`] = `${w} ${s} ${c}`;
+        };
+
+        const getBorderForCell = (r, c) => {
+            const styleIdx = resolveStyleIndex(r, c);
+            if (styleIdx === null || styleIdx === undefined) return null;
+            const style = cellXfs[styleIdx];
+            if (!style) return null;
+            return borders[style.borderId] || null;
+        };
+
+        // 顶边框：取合并区域第一行各单元格的 top
+        if (!td.style.borderTop) {
+            for (let c = startCol; c <= endCol; c++) {
+                const b = getBorderForCell(startRow, c);
+                if (b && b.top) {
+                    applyBorderSide('top', b.top);
+                    break;
+                }
+            }
+        }
+        // 底边框：取合并区域最后一行各单元格的 bottom
+        if (!td.style.borderBottom) {
+            for (let c = startCol; c <= endCol; c++) {
+                const b = getBorderForCell(endRow, c);
+                if (b && b.bottom) {
+                    applyBorderSide('bottom', b.bottom);
+                    break;
+                }
+            }
+        }
+        // 左边框：取合并区域第一列各单元格的 left
+        if (!td.style.borderLeft) {
+            for (let r = startRow; r <= endRow; r++) {
+                const b = getBorderForCell(r, startCol);
+                if (b && b.left) {
+                    applyBorderSide('left', b.left);
+                    break;
+                }
+            }
+        }
+        // 右边框：取合并区域最后一列各单元格的 right
+        if (!td.style.borderRight) {
+            for (let r = startRow; r <= endRow; r++) {
+                const b = getBorderForCell(r, endCol);
+                if (b && b.right) {
+                    applyBorderSide('right', b.right);
+                    break;
                 }
             }
         }
