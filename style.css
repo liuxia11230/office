@@ -1,0 +1,764 @@
+/* 
+ * Excel Viewer - Office Style CSS
+ * 模拟微软 Office Excel 的视觉效果
+ */
+
+:root {
+    /* Office 2021/365 配色 */
+    --excel-green: #217346;
+    --excel-green-light: #33a867;
+    --excel-green-dark: #1a5c38;
+    
+    /* 界面颜色 */
+    --bg-color: #f3f3f3;
+    --surface-color: #ffffff;
+    --header-bg: #f9f9f9;
+    --border-color: #e1e1e1;
+    --grid-line-color: #d4d4d4;
+    --grid-line-dark: #b4b4b4;
+    
+    /* 文字颜色 */
+    --text-primary: #1f1f1f;
+    --text-secondary: #616161;
+    --text-muted: #8a8a8a;
+    
+    /* Excel 默认设置 */
+    --default-font-family: "Calibri", "Carlito", "Noto Sans SC", "Microsoft YaHei", "微软雅黑", sans-serif;
+    --default-font-size: 11pt;
+    --default-row-height: 20px;
+    --default-col-width: 64px;
+    --row-header-width: 46px;
+    
+    /* 选中状态 */
+    --selection-color: #217346;
+    --selection-bg: rgba(33, 115, 70, 0.1);
+}
+
+/* 字体定义 - Office 常用字体 */
+
+/* 等线字体 (DengXian) - Office 2016+ 默认中文字体 */
+@font-face {
+    font-family: 'DengXian';
+    src: local('DengXian'), local('等线');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'DengXian';
+    src: local('DengXian Light'), local('等线 Light');
+    font-weight: 300;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'DengXian';
+    src: local('DengXian Bold'), local('等线 Bold');
+    font-weight: 700;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'DengXian Bold';
+    src: local('DengXian Bold'), local('等线 Bold');
+    font-weight: 700;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'DengXian Light';
+    src: local('DengXian Light'), local('等线 Light');
+    font-weight: 300;
+    font-style: normal;
+}
+
+/* Calibri 字体 */
+@font-face {
+    font-family: 'Calibri';
+    src: local('Calibri'), local('Carlito');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Calibri';
+    src: local('Calibri Bold'), local('Carlito Bold');
+    font-weight: 700;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Calibri';
+    src: local('Calibri Light'), local('Carlito Light');
+    font-weight: 300;
+    font-style: normal;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: var(--default-font-family);
+    font-size: 14px;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+}
+
+/* ===== 顶部标题栏 ===== */
+.app-header {
+    background: linear-gradient(180deg, #217346 0%, #1a5c38 100%);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    min-height: 42px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.excel-icon {
+    width: 24px;
+    height: 24px;
+}
+
+.app-header h1 {
+    font-size: 15px;
+    font-weight: 500;
+    color: #ffffff;
+    letter-spacing: 0.3px;
+}
+
+.header-info {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+}
+
+#file-name {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ===== 主内容区域 ===== */
+main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    background: var(--surface-color);
+}
+
+/* ===== 上传区域 ===== */
+.upload-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    background: linear-gradient(135deg, #f5f7f5 0%, #e8ebe8 100%);
+}
+
+.upload-area {
+    background: var(--surface-color);
+    border: 2px dashed #c5c5c5;
+    border-radius: 12px;
+    padding: 4rem 3rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.upload-area:hover,
+.upload-area.dragover {
+    border-color: var(--excel-green);
+    background-color: rgba(33, 115, 70, 0.03);
+    box-shadow: 0 4px 16px rgba(33, 115, 70, 0.15);
+    transform: translateY(-2px);
+}
+
+.upload-icon {
+    width: 64px;
+    height: 64px;
+    color: var(--excel-green);
+    margin-bottom: 1.5rem;
+    opacity: 0.9;
+}
+
+.upload-text {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.upload-subtext {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+/* ===== 预览容器 ===== */
+.preview-container {
+    flex: 1;
+    overflow: auto;
+    background: #ffffff;
+    position: relative;
+}
+
+.table-wrapper {
+    min-width: 100%;
+    min-height: 100%;
+}
+
+/* ===== Excel 表格样式 ===== */
+.spreadsheet-table {
+    border-collapse: collapse;
+    border-spacing: 0;
+    table-layout: fixed;
+    font-family: var(--default-font-family);
+    font-size: var(--default-font-size);
+    color: #000000;
+    background: #ffffff;
+    min-width: max-content;
+    
+    /* 字体渲染优化 */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+.spreadsheet-table th,
+.spreadsheet-table td {
+    border-right: 1px solid var(--grid-line-color);
+    border-bottom: 1px solid var(--grid-line-color);
+    height: var(--default-row-height);
+    vertical-align: bottom; /* Excel 默认底部对齐 */
+    padding: 0 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    position: relative;
+    box-sizing: border-box;
+}
+
+/* 列标题 (A, B, C...) */
+.spreadsheet-table thead th {
+    background: linear-gradient(180deg, #f9f9f9 0%, #ededed 100%);
+    color: #333333;
+    font-weight: 500;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--grid-line-dark);
+    border-right: 1px solid var(--grid-line-dark);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    user-select: none;
+    height: 22px;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+/* ===== 冻结行（吸顶效果） ===== */
+.spreadsheet-table tr.frozen-row {
+    position: sticky;
+    z-index: 15;
+}
+
+.spreadsheet-table tr.frozen-row td,
+.spreadsheet-table tr.frozen-row th {
+    /* 冻结行需要有背景色，否则滚动时会透明 */
+    background-color: inherit;
+}
+
+.spreadsheet-table tr.frozen-row td {
+    /* 如果单元格没有设置背景色，使用白色 */
+    background-color: #ffffff;
+}
+
+/* 冻结行的行号也需要特殊处理 */
+.spreadsheet-table tr.frozen-row > th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 25;
+    background: linear-gradient(90deg, #f0f0f0 0%, #e8e8e8 100%);
+}
+
+/* 最后一个冻结行底部添加分隔线 */
+.spreadsheet-table tr.frozen-row-last td,
+.spreadsheet-table tr.frozen-row-last th {
+    border-bottom: 2px solid #4a9c6d !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== 冻结列 ===== */
+.spreadsheet-table td.frozen-col {
+    position: sticky;
+    z-index: 10;
+}
+
+/* 最后一个冻结列右侧添加分隔线 */
+.spreadsheet-table td.frozen-col-last {
+    border-right: 2px solid #4a9c6d !important;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 冻结行+冻结列交叉区域 */
+.spreadsheet-table tr.frozen-row td.frozen-col {
+    z-index: 20;
+}
+
+/* 行标题 (1, 2, 3...) */
+.spreadsheet-table tbody th {
+    background: linear-gradient(90deg, #f9f9f9 0%, #ededed 100%);
+    color: #333333;
+    font-weight: 500;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: middle;
+    border-right: 1px solid var(--grid-line-dark);
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    user-select: none;
+    width: var(--row-header-width);
+    min-width: var(--row-header-width);
+    max-width: var(--row-header-width);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+/* 左上角单元格 */
+.spreadsheet-table thead th:first-child {
+    z-index: 30;
+    left: 0;
+    background: linear-gradient(135deg, #f9f9f9 0%, #e8e8e8 100%);
+    border-right: 1px solid var(--grid-line-dark);
+    border-bottom: 1px solid var(--grid-line-dark);
+    width: var(--row-header-width);
+    min-width: var(--row-header-width);
+}
+
+/* 数据单元格 */
+.spreadsheet-table td {
+    background: #ffffff;
+    cursor: cell;
+    /* Excel 默认底部对齐，左对齐文本，右对齐数字 */
+    vertical-align: bottom;
+    line-height: 1.15;
+}
+
+/* 数字类型默认右对齐 */
+.spreadsheet-table td.cell-number {
+    text-align: right;
+}
+
+/* 日期类型默认右对齐 */
+.spreadsheet-table td.cell-date {
+    text-align: right;
+}
+
+/* 布尔类型居中 */
+.spreadsheet-table td.cell-boolean {
+    text-align: center;
+}
+
+/* 单元格悬停效果 */
+.spreadsheet-table td:hover {
+    outline: 1px solid var(--selection-color);
+    outline-offset: -1px;
+}
+
+/* ===== 底部控制栏 ===== */
+.controls {
+    background: linear-gradient(180deg, #f9f9f9 0%, #f3f3f3 100%);
+    border-top: 1px solid #d4d4d4;
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    height: 28px;
+    flex-shrink: 0;
+    z-index: 50;
+}
+
+.sheet-tabs {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    padding-left: 0;
+    flex: 1;
+}
+
+.sheet-tabs::-webkit-scrollbar {
+    height: 4px;
+}
+
+.sheet-tabs::-webkit-scrollbar-thumb {
+    background: #c0c0c0;
+    border-radius: 2px;
+}
+
+/* Sheet 标签按钮 */
+.tab-btn {
+    padding: 0 16px;
+    height: 100%;
+    border: none;
+    border-right: 1px solid #d4d4d4;
+    background: transparent;
+    font-size: 11px;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #333333;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    position: relative;
+    outline: none;
+    transition: background-color 0.15s;
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    background-color: #e8e8e8;
+}
+
+.tab-btn.active {
+    background: #ffffff;
+    color: #000000;
+    font-weight: 500;
+    border-bottom: 2px solid var(--excel-green);
+}
+
+/* 状态栏 */
+.status-bar {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border-left: 1px solid #d4d4d4;
+    min-width: 150px;
+}
+
+/* ===== 工具类 ===== */
+.hide {
+    display: none !important;
+}
+
+/* 信息条 */
+.info-bar {
+    padding: 6px 16px;
+    background: #fff8e1;
+    color: #8d6e00;
+    font-size: 12px;
+    text-align: center;
+    border-bottom: 1px solid #ffe082;
+}
+
+/* 调试提示条 */
+.debug-hint-bar {
+    padding: 6px 16px;
+    background: #e3f2fd;
+    color: #1565c0;
+    font-size: 12px;
+    text-align: center;
+    border-bottom: 1px solid #90caf9;
+}
+
+.debug-hint-bar strong {
+    font-weight: 600;
+}
+
+/* ===== 滚动条样式 ===== */
+.preview-container::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+}
+
+.preview-container::-webkit-scrollbar-track {
+    background: #f5f5f5;
+}
+
+.preview-container::-webkit-scrollbar-thumb {
+    background: #c0c0c0;
+    border: 3px solid #f5f5f5;
+    border-radius: 7px;
+}
+
+.preview-container::-webkit-scrollbar-thumb:hover {
+    background: #a0a0a0;
+}
+
+.preview-container::-webkit-scrollbar-corner {
+    background: #f5f5f5;
+}
+
+/* ===== 特殊单元格内容样式 ===== */
+/* 超链接 */
+.cell-hyperlink {
+    color: #0563c1;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.cell-hyperlink:hover {
+    color: #034b8a;
+}
+
+/* 错误值 */
+.cell-error {
+    color: #c00000;
+}
+
+/* 富文本 span */
+.spreadsheet-table td span {
+    /* 继承父级样式，除非被覆盖 */
+}
+
+/* ===== 响应式调整 ===== */
+@media (max-width: 768px) {
+    .upload-area {
+        padding: 2rem 1.5rem;
+    }
+    
+    .upload-icon {
+        width: 48px;
+        height: 48px;
+    }
+    
+    .app-header {
+        padding: 6px 12px;
+    }
+    
+    .header-info {
+        display: none;
+    }
+}
+
+/* ===== 打印样式 ===== */
+@media print {
+    .app-header,
+    .controls,
+    .upload-wrapper {
+        display: none !important;
+    }
+    
+    .preview-container {
+        overflow: visible;
+    }
+    
+    .spreadsheet-table thead th,
+    .spreadsheet-table tbody th {
+        position: static;
+    }
+}
+
+/* ===== 调试面板 ===== */
+.debug-panel {
+    position: fixed;
+    bottom: 40px;
+    right: 20px;
+    width: 320px;
+    background: #ffffff;
+    border: 1px solid #d4d4d4;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 12px;
+    overflow: hidden;
+}
+
+.debug-header {
+    background: linear-gradient(180deg, #217346 0%, #1a5c38 100%);
+    color: white;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
+}
+
+.debug-close {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0.8;
+}
+
+.debug-close:hover {
+    opacity: 1;
+}
+
+.debug-content {
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.debug-section {
+    margin-bottom: 12px;
+}
+
+.debug-section:last-child {
+    margin-bottom: 0;
+}
+
+.debug-section strong {
+    display: block;
+    color: #333;
+    margin-bottom: 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.debug-font-info {
+    background: #f5f5f5;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-family: "Consolas", "Monaco", monospace;
+    color: #217346;
+    font-weight: 500;
+}
+
+.debug-font-list {
+    background: #f9f9f9;
+    border-radius: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.debug-font-item {
+    padding: 6px 10px;
+    border-bottom: 1px solid #eee;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 11px;
+}
+
+.debug-font-item:last-child {
+    border-bottom: none;
+}
+
+.debug-tip {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 4px;
+    padding: 8px 10px;
+    color: #8d6e00;
+    line-height: 1.5;
+}
+
+/* 大型调试面板 */
+.debug-panel-large {
+    width: 420px;
+    max-height: 500px;
+}
+
+.debug-panel-large .debug-content {
+    max-height: 450px;
+}
+
+/* 调试标签 */
+.debug-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 8px;
+}
+
+.debug-tab {
+    padding: 6px 12px;
+    border: none;
+    background: #f0f0f0;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 4px 4px 0 0;
+    color: #666;
+    transition: all 0.15s;
+}
+
+.debug-tab:hover {
+    background: #e0e0e0;
+}
+
+.debug-tab.active {
+    background: #217346;
+    color: white;
+}
+
+.debug-tab-content {
+    background: #f8f8f8;
+    border-radius: 4px;
+    padding: 10px;
+    max-height: 200px;
+    overflow: auto;
+}
+
+.debug-tab-content pre {
+    margin: 0;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #333;
+}
+
+/* 颜色预览 */
+.debug-color-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0;
+    font-size: 12px;
+}
+
+.color-swatch {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    flex-shrink: 0;
+}
+
+/* 提示文字 */
+.debug-hint {
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    border-radius: 4px;
+    padding: 8px 10px;
+    color: #1565c0;
+    font-size: 11px;
+    margin-top: 10px;
+}
