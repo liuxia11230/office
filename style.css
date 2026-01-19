@@ -287,6 +287,49 @@ main {
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
+/* 点击选中后：列标题/行标题高亮边框 */
+.spreadsheet-table thead th.col-selected-header {
+    position: sticky;
+    z-index: 35;
+    overflow: visible;
+}
+
+.spreadsheet-table tbody th.row-selected-header {
+    position: sticky;
+    z-index: 25;
+    overflow: visible;
+}
+
+/* 行/列淡色高亮 */
+.spreadsheet-table td.cell-row-highlight,
+.spreadsheet-table td.cell-col-highlight {
+    background-color: rgba(33, 115, 70, 0.08);
+}
+
+/* 列标题底部边线 */
+.spreadsheet-table thead th.col-selected-header::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 0;
+    border-bottom: 2px solid var(--selection-color);
+    pointer-events: none;
+}
+
+/* 行标题右侧边线 */
+.spreadsheet-table tbody th.row-selected-header::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -1px;
+    width: 0;
+    border-right: 2px solid var(--selection-color);
+    pointer-events: none;
+}
+
 /* ===== 冻结行（吸顶效果） ===== */
 .spreadsheet-table tr.frozen-row {
     position: sticky;
@@ -390,10 +433,36 @@ main {
     text-align: center;
 }
 
-/* 单元格悬停效果 */
-.spreadsheet-table td:hover {
+/* 单元格悬停效果（主题色加粗边框） */
+.spreadsheet-table td.cell-hover {
+    position: relative;
+    z-index: 5;
+    overflow: visible;
+    box-shadow: inset 0 0 0 1px var(--selection-color);
     outline: 1px solid var(--selection-color);
-    outline-offset: -1px;
+    outline-offset: 0;
+}
+
+/* 单元格点击选中效果 */
+.spreadsheet-table td.cell-selected {
+    position: relative;
+    z-index: 6;
+    overflow: visible;
+    box-shadow: inset 0 0 0 1px var(--selection-color);
+    outline: 1px solid var(--selection-color);
+    outline-offset: 0;
+}
+
+.spreadsheet-table td.cell-selected::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    right: -4px;
+    bottom: -4px;
+    background: var(--selection-color);
+    border: 1px solid #ffffff;
+    box-sizing: border-box;
 }
 
 /* ===== 底部控制栏 ===== */

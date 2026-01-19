@@ -414,7 +414,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadWrapper.classList.add('hide');
         controls.classList.remove('hide');
         previewContainer.classList.remove('hide');
-        
+
         document.querySelectorAll('.info-bar').forEach(e => e.remove());
         
         setupTabs(workbook.sheets, zip);
@@ -426,7 +426,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setupTabs(sheets, zip) {
         sheetTabs.innerHTML = '';
-        
+
         sheets.forEach((sheet, index) => {
             const btn = document.createElement('button');
             btn.textContent = sheet.name;
@@ -484,7 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const table = document.createElement('table');
         table.className = 'spreadsheet-table';
-        
+
         // 默认字体（通常是 fonts[0]）
         if (fonts[0]) {
             table.style.fontFamily = getFontFamily(fonts[0].name, false);
@@ -511,6 +511,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 获取合并单元格
         const merges = new Map();
+        const mergeSpanMap = new Map();
         doc.querySelectorAll('mergeCell').forEach(mc => {
             const ref = mc.getAttribute('ref');
             if (ref) {
@@ -521,6 +522,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     colspan: e.c - s.c + 1,
                     isMaster: true
                 });
+                for (let r = s.r; r <= e.r; r++) {
+                    for (let c = s.c; c <= e.c; c++) {
+                        mergeSpanMap.set(`${r},${c}`, {
+                            startRow: s.r,
+                            startCol: s.c,
+                            endRow: e.r,
+                            endCol: e.c
+                        });
+                    }
+                }
                 for (let r = s.r; r <= e.r; r++) {
                     for (let c = s.c; c <= e.c; c++) {
                         if (r !== s.r || c !== s.c) {
@@ -582,17 +593,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const headerRow = document.createElement('tr');
         headerRow.className = 'header-row';
         headerRow.appendChild(document.createElement('th'));
-        
+
         for (let c = 1; c <= maxCol; c++) {
             const th = document.createElement('th');
             th.textContent = colName(c);
+            th.dataset.col = String(c);
             const w = (colWidths[c] || 8.43) * 7.5;
             th.style.width = th.style.minWidth = Math.max(w, 30) + 'px';
             headerRow.appendChild(th);
         }
         thead.appendChild(headerRow);
         table.appendChild(thead);
-        
+
         // 计算冻结行的高度（用于 sticky 定位）
         const defaultRowHeight = 20; // 默认行高 px
         const headerHeight = 22; // 表头行高
@@ -646,7 +658,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rowNum > 1000) return;
             
             const tr = document.createElement('tr');
-            
+
             // 行高
             const rowHeight = rowHeights[rowNum] || defaultRowHeight;
             tr.style.height = rowHeight + 'px';
@@ -665,8 +677,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 行号（始终固定在左侧）
             const rowHeader = document.createElement('th');
             rowHeader.textContent = rowNum;
+            rowHeader.dataset.row = String(rowNum);
             tr.appendChild(rowHeader);
-            
+
             // 计算冻结列的宽度偏移（用于 sticky left 定位）
             let frozenColOffset = 46; // 行号列宽度
             
@@ -685,7 +698,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (merge && merge.hidden) continue;
                 
                 const td = document.createElement('td');
-                
+
                 if (merge && merge.isMaster) {
                     td.rowSpan = merge.rowspan;
                     td.colSpan = merge.colspan;
@@ -700,6 +713,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 空单元格也要应用样式（尤其是边框）
                     renderCell(td, null, resolvedStyleIndex, rowNum, c, resolveStyleIndex);
                 }
+                td.dataset.row = String(rowNum);
+                td.dataset.col = String(c);
 
                 // 合并单元格需要合并范围的边框应用到主单元格
                 if (merge && merge.isMaster) {
@@ -728,21 +743,28 @@ document.addEventListener('DOMContentLoaded', () => {
                         td.classList.add('frozen-col-last');
                     }
                 }
-                
+
                 tr.appendChild(td);
                 
                 // 更新冻结列偏移
                 if (c <= freezeInfo.frozenCols) {
                     const colWidth = (colWidths[c] || 8.43) * 7.5;
                     frozenColOffset += Math.max(colWidth, 30);
-                }
             }
+        }
             
             tbody.appendChild(tr);
         });
         
         table.appendChild(tbody);
         tableWrapper.appendChild(table);
+
+        // 保存合并单元格范围，供选择效果使用
+        table._mergeSpanMap = mergeSpanMap;
+
+        // 绑定悬停与选中效果
+        bindHoverEffect(table);
+        bindSelectionEffect(table);
         
         cellInfo.textContent = `${lastRow} 行 × ${maxCol} 列`;
     }
@@ -787,6 +809,92 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // === 应用样式（无论是否有值） ===
         applyCellStyle(td, cellStyle, rowNum, colNum, resolveStyleIndex);
+    }
+
+    function bindHoverEffect(table) {
+        let lastCell = null;
+        table.addEventListener('mouseover', (e) => {
+            const cell = e.target.closest('td');
+            if (!cell || cell === lastCell) return;
+            if (lastCell) lastCell.classList.remove('cell-hover');
+            cell.classList.add('cell-hover');
+            lastCell = cell;
+        });
+        table.addEventListener('mouseout', (e) => {
+            const toEl = e.relatedTarget;
+            if (!toEl || !table.contains(toEl)) {
+                if (lastCell) lastCell.classList.remove('cell-hover');
+                lastCell = null;
+            }
+        });
+    }
+
+    function bindSelectionEffect(table) {
+        let selectedCell = null;
+        let selectedColHeaders = [];
+        let selectedRowHeaders = [];
+        let selectedRowCells = [];
+        let selectedColCells = [];
+
+        table.addEventListener('click', (e) => {
+            const cell = e.target.closest('td');
+            if (!cell) return;
+
+            if (selectedCell) selectedCell.classList.remove('cell-selected');
+            selectedCell = cell;
+            cell.classList.add('cell-selected');
+
+            const col = cell.dataset.col;
+            const row = cell.dataset.row;
+
+            selectedColHeaders.forEach(h => h.classList.remove('col-selected-header'));
+            selectedRowHeaders.forEach(h => h.classList.remove('row-selected-header'));
+            selectedColHeaders = [];
+            selectedRowHeaders = [];
+
+            selectedRowCells.forEach(c => c.classList.remove('cell-row-highlight'));
+            selectedColCells.forEach(c => c.classList.remove('cell-col-highlight'));
+            selectedRowCells = [];
+            selectedColCells = [];
+
+            let colStart = col ? parseInt(col) : null;
+            let colEnd = colStart;
+            let rowStart = row ? parseInt(row) : null;
+            let rowEnd = rowStart;
+
+            // 合并单元格：扩展行列范围
+            const span = table._mergeSpanMap ? table._mergeSpanMap.get(`${row},${col}`) : null;
+            if (span) {
+                colStart = span.startCol;
+                colEnd = span.endCol;
+                rowStart = span.startRow;
+                rowEnd = span.endRow;
+            }
+
+            if (colStart !== null && colEnd !== null) {
+                for (let c = colStart; c <= colEnd; c++) {
+                    const header = table.querySelector(`thead th[data-col="${c}"]`);
+                    if (header) {
+                        header.classList.add('col-selected-header');
+                        selectedColHeaders.push(header);
+                    }
+                    selectedColCells.push(...Array.from(table.querySelectorAll(`tbody td[data-col="${c}"]`)));
+                }
+                selectedColCells.forEach(c => c.classList.add('cell-col-highlight'));
+            }
+
+            if (rowStart !== null && rowEnd !== null) {
+                for (let r = rowStart; r <= rowEnd; r++) {
+                    const header = table.querySelector(`tbody th[data-row="${r}"]`);
+                    if (header) {
+                        header.classList.add('row-selected-header');
+                        selectedRowHeaders.push(header);
+                    }
+                    selectedRowCells.push(...Array.from(table.querySelectorAll(`tbody td[data-row="${r}"]`)));
+                }
+                selectedRowCells.forEach(c => c.classList.add('cell-row-highlight'));
+            }
+        });
     }
 
     function applyCellStyle(td, cellStyle, rowNum, colNum, resolveStyleIndex) {
