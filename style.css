@@ -269,6 +269,21 @@ main {
     box-sizing: border-box;
 }
 
+/* 允许文本溢出到右侧空单元格 */
+.spreadsheet-table td.cell-overflow {
+    overflow: visible;
+    position: relative;
+    z-index: 6;
+}
+.spreadsheet-table td.cell-overflow .cell-overflow-text {
+    position: absolute;
+    left: 3px;
+    top: 0;
+    white-space: nowrap;
+    pointer-events: none;
+    color: inherit;
+}
+
 /* 列标题 (A, B, C...) */
 .spreadsheet-table thead th {
     background: linear-gradient(180deg, #f9f9f9 0%, #ededed 100%);
@@ -591,7 +606,7 @@ main {
 /* ===== 特殊单元格内容样式 ===== */
 /* 超链接 */
 .cell-hyperlink {
-    color: #0563c1;
+    color: var(--hyperlink-color, #0563c1);
     text-decoration: underline;
     cursor: pointer;
 }
@@ -603,11 +618,6 @@ main {
 /* 错误值 */
 .cell-error {
     color: #c00000;
-}
-
-/* 富文本 span */
-.spreadsheet-table td span {
-    /* 继承父级样式，除非被覆盖 */
 }
 
 /* ===== 响应式调整 ===== */
