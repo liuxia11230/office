@@ -26,6 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let sharedStrings = [];    // 共享字符串
     let numFmts = {};          // 数字格式
     let currentMaxCol = 0;     // 当前工作表最大列数（用于外侧边框处理）
+let currentColWidths = {}; // 当前工作表列宽（用于溢出计算）
+let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
 
     // 默认主题颜色
     const DEFAULT_THEME = {
@@ -216,27 +218,64 @@ document.addEventListener('DOMContentLoaded', () => {
             borders.push(border);
         });
         
+        // 解析 cellStyleXfs（基础样式）
+        const baseCellXfs = [];
+        doc.querySelectorAll('cellStyleXfs > xf').forEach(xf => {
+            const style = {};
+            const alignment = xf.querySelector('alignment');
+            if (alignment) {
+                const wrapAttr = alignment.getAttribute('wrapText');
+                const shrinkAttr = alignment.getAttribute('shrinkToFit');
+                style.alignment = {
+                    horizontal: alignment.getAttribute('horizontal'),
+                    vertical: alignment.getAttribute('vertical'),
+                    wrapText: wrapAttr === 'true' || wrapAttr === '1',
+                    shrinkToFit: shrinkAttr === 'true' || shrinkAttr === '1',
+                    textRotation: parseInt(alignment.getAttribute('textRotation')) || 0,
+                    indent: parseInt(alignment.getAttribute('indent')) || 0
+                };
+            }
+            baseCellXfs.push(style);
+        });
+
         // 解析 cellXfs（单元格样式组合）
         doc.querySelectorAll('cellXfs > xf').forEach(xf => {
             const style = {
                 fontId: parseInt(xf.getAttribute('fontId')) || 0,
                 fillId: parseInt(xf.getAttribute('fillId')) || 0,
                 borderId: parseInt(xf.getAttribute('borderId')) || 0,
-                numFmtId: parseInt(xf.getAttribute('numFmtId')) || 0
+                numFmtId: parseInt(xf.getAttribute('numFmtId')) || 0,
+                xfId: xf.getAttribute('xfId') !== null ? parseInt(xf.getAttribute('xfId')) : null,
+                applyAlignment: xf.getAttribute('applyAlignment')
             };
             
             const alignment = xf.querySelector('alignment');
             if (alignment) {
+                const wrapAttr = alignment.getAttribute('wrapText');
+                const shrinkAttr = alignment.getAttribute('shrinkToFit');
                 style.alignment = {
                     horizontal: alignment.getAttribute('horizontal'),
                     vertical: alignment.getAttribute('vertical'),
-                    wrapText: alignment.getAttribute('wrapText') === 'true',
+                    wrapText: wrapAttr === 'true' || wrapAttr === '1',
+                    shrinkToFit: shrinkAttr === 'true' || shrinkAttr === '1',
                     textRotation: parseInt(alignment.getAttribute('textRotation')) || 0,
                     indent: parseInt(alignment.getAttribute('indent')) || 0
                 };
             }
             
             cellXfs.push(style);
+        });
+
+        // 合并基础样式中的对齐（如果 cellXfs 中没有对齐信息）
+        cellXfs.forEach(style => {
+            const applyAlign = style.applyAlignment;
+            if (applyAlign === '0') {
+                style.alignment = null;
+                return;
+            }
+            if (!style.alignment && style.xfId !== null && baseCellXfs[style.xfId]) {
+                style.alignment = baseCellXfs[style.xfId].alignment || null;
+            }
         });
         
         console.log('cellXfs 数量:', cellXfs.length);
@@ -271,17 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const doc = parser.parseFromString(xml, 'text/xml');
         
         doc.querySelectorAll('si').forEach(si => {
-            const t = si.querySelector('t');
-            if (t) {
-                sharedStrings.push(t.textContent || '');
-            } else {
-                // 富文本
-                let text = '';
-                si.querySelectorAll('r t').forEach(rt => {
-                    text += rt.textContent || '';
-                });
-                sharedStrings.push(text);
-            }
+            sharedStrings.push(extractRichText(si));
         });
     }
 
@@ -303,6 +332,94 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         return { sheets };
+    }
+
+    function extractRichText(node) {
+        if (!node) return '';
+        let text = '';
+        node.childNodes.forEach(child => {
+            if (child.nodeType !== 1) return;
+            const tag = child.localName;
+            if (tag === 't') {
+                text += child.textContent || '';
+            } else if (tag === 'r') {
+                child.childNodes.forEach(rn => {
+                    if (rn.nodeType !== 1) return;
+                    const rtag = rn.localName;
+                    if (rtag === 't') {
+                        text += rn.textContent || '';
+                    } else if (rtag === 'br') {
+                        text += '\n';
+                    }
+                });
+            } else if (tag === 'br') {
+                text += '\n';
+            }
+        });
+        if (!text) {
+            const t = node.querySelector('t');
+            if (t) text = t.textContent || '';
+        }
+        return text;
+    }
+
+    function parseHyperlinks(sheetDoc, relsDoc) {
+        const map = new Map();
+        if (!sheetDoc) return map;
+        const relMap = new Map();
+        if (relsDoc) {
+            relsDoc.querySelectorAll('Relationship').forEach(rel => {
+                const id = rel.getAttribute('Id');
+                const target = rel.getAttribute('Target');
+                if (id && target) relMap.set(id, target);
+            });
+        }
+
+        sheetDoc.querySelectorAll('hyperlink').forEach(link => {
+            const ref = link.getAttribute('ref');
+            const rId = link.getAttribute('r:id') || link.getAttribute('id');
+            const target = rId ? (relMap.get(rId) || '') : (link.getAttribute('location') || '');
+            if (!ref) return;
+            expandRangeRefs(ref).forEach(cellRefStr => {
+                map.set(cellRefStr, { target });
+            });
+        });
+        return map;
+    }
+
+    function expandRangeRefs(ref) {
+        if (!ref) return [];
+        if (!ref.includes(':')) return [ref];
+        const [start, end] = ref.split(':');
+        const s = cellRef(start);
+        const e = cellRef(end);
+        const refs = [];
+        for (let r = s.r; r <= e.r; r++) {
+            for (let c = s.c; c <= e.c; c++) {
+                refs.push(`${colName(c)}${r}`);
+            }
+        }
+        return refs;
+    }
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function buildHyperlinkHtml(text, target) {
+        const str = String(text || '');
+        const match = str.match(/https?:\/\/\S+/);
+        if (!match) return escapeHtml(str);
+        const url = match[0];
+        const href = target || url;
+        const before = str.slice(0, match.index);
+        const after = str.slice(match.index + url.length);
+        return `${escapeHtml(before)}<a class="cell-hyperlink" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(after)}`;
     }
 
     // ==========================================
@@ -463,19 +580,29 @@ document.addEventListener('DOMContentLoaded', () => {
             tableWrapper.innerHTML = '<div style="padding:2rem;text-align:center;">无法加载工作表</div>';
             return;
         }
+
+        // 读取工作表关系（用于超链接）
+        let sheetRelsDoc = null;
+        const relsPath = sheetPath.replace('worksheets/', 'worksheets/_rels/') + '.rels';
+        const sheetRelsFile = zip.file(relsPath);
+        if (sheetRelsFile) {
+            const relsXml = await sheetRelsFile.async('string');
+            const relsParser = new DOMParser();
+            sheetRelsDoc = relsParser.parseFromString(relsXml, 'text/xml');
+        }
         
         const xml = await sheetFile.async('string');
         const parser = new DOMParser();
         const doc = parser.parseFromString(xml, 'text/xml');
         
-        renderSheet(doc);
+        renderSheet(doc, sheetRelsDoc);
     }
 
     // ==========================================
     // 渲染工作表
     // ==========================================
 
-    function renderSheet(doc) {
+    function renderSheet(doc, sheetRelsDoc) {
         tableWrapper.innerHTML = '';
         
         // 解析冻结窗格信息
@@ -491,6 +618,12 @@ document.addEventListener('DOMContentLoaded', () => {
             table.style.fontSize = (fonts[0].size || 11) + 'pt';
             table.style.fontWeight = getFontWeight(fonts[0].name, fonts[0].bold);
         }
+        // 计算默认字体的最大数字宽度（MDW）
+        currentMDW = measureMaxDigitWidth();
+
+        // 超链接主题色
+        const hlinkColor = resolveColor({ theme: 10 }) || '#0563c1';
+        table.style.setProperty('--hyperlink-color', hlinkColor);
         
         // 获取列宽与列样式
         const colWidths = {};
@@ -511,6 +644,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 获取合并单元格
         const merges = new Map();
+        // 超链接映射（ref -> { target })
+        const hyperlinkMap = parseHyperlinks(doc, sheetRelsDoc);
         const mergeSpanMap = new Map();
         doc.querySelectorAll('mergeCell').forEach(mc => {
             const ref = mc.getAttribute('ref');
@@ -559,10 +694,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         maxCol = Math.min(maxCol, 100);
         currentMaxCol = maxCol;
+        currentColWidths = { ...colWidths };
 
         // 预构建行样式与单元格样式索引映射
         const rowStyleMap = {};
         const cellStyleMap = new Map();
+        const cellElemMap = new Map();
         rows.forEach(rowElem => {
             const rowNum = parseInt(rowElem.getAttribute('r'));
             const rowStyleAttr = rowElem.getAttribute('s');
@@ -577,6 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const sIdx = parseInt(sAttr);
                     if (!Number.isNaN(sIdx)) cellStyleMap.set(`${ref.r},${ref.c}`, sIdx);
                 }
+                cellElemMap.set(`${ref.r},${ref.c}`, c);
             });
         });
 
@@ -588,6 +726,24 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         };
         
+        // 列宽控制（使用 colgroup 保证列宽准确）
+        const colgroup = document.createElement('colgroup');
+        const rowHeaderCol = document.createElement('col');
+        const rowHeaderWidth = 46;
+        rowHeaderCol.style.width = `${rowHeaderWidth}px`;
+        colgroup.appendChild(rowHeaderCol);
+        let totalTableWidth = rowHeaderWidth;
+        for (let c = 1; c <= maxCol; c++) {
+            const col = document.createElement('col');
+            const w = calcColumnWidthPx(colWidths[c] || 8.43);
+            col.style.width = `${w}px`;
+            colgroup.appendChild(col);
+            totalTableWidth += w;
+        }
+        table.appendChild(colgroup);
+        table.style.width = `${totalTableWidth}px`;
+        table.style.minWidth = `${totalTableWidth}px`;
+
         // 表头（列标题 A, B, C...）
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
@@ -598,8 +754,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const th = document.createElement('th');
             th.textContent = colName(c);
             th.dataset.col = String(c);
-            const w = (colWidths[c] || 8.43) * 7.5;
-            th.style.width = th.style.minWidth = Math.max(w, 30) + 'px';
+            const w = calcColumnWidthPx(colWidths[c] || 8.43);
+            th.style.width = th.style.minWidth = `${w}px`;
             headerRow.appendChild(th);
         }
         thead.appendChild(headerRow);
@@ -618,7 +774,11 @@ document.addEventListener('DOMContentLoaded', () => {
         rows.forEach(rowElem => {
             const rowNum = parseInt(rowElem.getAttribute('r'));
             const ht = rowElem.getAttribute('ht');
-            rowHeights[rowNum] = ht ? (parseFloat(ht) * 1.33) : defaultRowHeight;
+            const customHeight = rowElem.getAttribute('customHeight') === 'true';
+            rowHeights[rowNum] = {
+                height: (customHeight && ht) ? (parseFloat(ht) * 1.33) : null,
+                calcHeight: ht ? (parseFloat(ht) * 1.33) : defaultRowHeight
+            };
         });
         
         // 计算每个冻结行的 top 偏移量
@@ -627,7 +787,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let cumTop = headerHeight;
             for (let r = 1; r <= freezeInfo.frozenRows; r++) {
                 frozenRowTops[r] = cumTop;
-                cumTop += rowHeights[r] || defaultRowHeight;
+                const rh = rowHeights[r] ? rowHeights[r].calcHeight : defaultRowHeight;
+                cumTop += rh;
             }
         }
         
@@ -660,8 +821,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const tr = document.createElement('tr');
 
             // 行高
-            const rowHeight = rowHeights[rowNum] || defaultRowHeight;
-            tr.style.height = rowHeight + 'px';
+            const rowHeightInfo = rowHeights[rowNum];
+            if (rowHeightInfo && rowHeightInfo.height !== null) {
+                tr.style.height = rowHeightInfo.height + 'px';
+            }
             
             // 检查是否是冻结行
             if (freezeInfo.isFrozen && rowNum <= freezeInfo.frozenRows) {
@@ -706,12 +869,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const cellElem = cellMap[c];
                 const resolvedStyleIndex = resolveStyleIndex(rowNum, c);
+                const cellStyle = (resolvedStyleIndex !== null && resolvedStyleIndex !== undefined)
+                    ? cellXfs[resolvedStyleIndex]
+                    : null;
+
+                // 文本溢出（Excel 允许文本溢出到右侧连续空单元格）
+                let overflowEndCol = null;
+                if (cellElem) {
+                    overflowEndCol = getOverflowEndCol(
+                        cellElem,
+                        resolvedStyleIndex,
+                        rowNum,
+                        c,
+                        cellMap,
+                        mergeSpanMap,
+                        resolveStyleIndex
+                    );
+                }
 
                 if (cellElem) {
-                    renderCell(td, cellElem, resolvedStyleIndex, rowNum, c, resolveStyleIndex);
+                    renderCell(td, cellElem, resolvedStyleIndex, rowNum, c, resolveStyleIndex, overflowEndCol, hyperlinkMap);
                 } else if (resolvedStyleIndex !== null && !Number.isNaN(resolvedStyleIndex)) {
                     // 空单元格也要应用样式（尤其是边框）
-                    renderCell(td, null, resolvedStyleIndex, rowNum, c, resolveStyleIndex);
+                    renderCell(td, null, resolvedStyleIndex, rowNum, c, resolveStyleIndex, overflowEndCol, hyperlinkMap);
+                }
+
+                if (overflowEndCol && overflowEndCol > c) {
+                    td.classList.add('cell-overflow');
                 }
                 td.dataset.row = String(rowNum);
                 td.dataset.col = String(c);
@@ -748,8 +932,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // 更新冻结列偏移
                 if (c <= freezeInfo.frozenCols) {
-                    const colWidth = (colWidths[c] || 8.43) * 7.5;
-                    frozenColOffset += Math.max(colWidth, 30);
+                    const colWidth = calcColumnWidthPx(colWidths[c] || 8.43);
+                    frozenColOffset += colWidth;
             }
         }
             
@@ -758,9 +942,13 @@ document.addEventListener('DOMContentLoaded', () => {
         
         table.appendChild(tbody);
         tableWrapper.appendChild(table);
+        adjustAutoRowHeights(table, rowHeights, defaultRowHeight, freezeInfo);
 
-        // 保存合并单元格范围，供选择效果使用
+        // 保存单元格元数据，供选择/调试使用
         table._mergeSpanMap = mergeSpanMap;
+        table._cellElemMap = cellElemMap;
+        table._resolveStyleIndex = resolveStyleIndex;
+        table._colWidths = { ...colWidths };
 
         // 绑定悬停与选中效果
         bindHoverEffect(table);
@@ -769,7 +957,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cellInfo.textContent = `${lastRow} 行 × ${maxCol} 列`;
     }
 
-    function renderCell(td, cellElem, styleIndex, rowNum, colNum, resolveStyleIndex) {
+    function renderCell(td, cellElem, styleIndex, rowNum, colNum, resolveStyleIndex, overflowEndCol, hyperlinkMap) {
         const resolvedStyleIndex = (styleIndex !== undefined && styleIndex !== null && !Number.isNaN(styleIndex))
             ? styleIndex
             : (cellElem && cellElem.getAttribute('s') !== null)
@@ -787,6 +975,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (type === 's' && value) {
                 const idx = parseInt(value);
                 value = sharedStrings[idx] || '';
+            } else if (type === 'inlineStr') {
+                // 处理内联字符串（含富文本/换行）
+                const isElem = cellElem.querySelector('is');
+                if (isElem) {
+                    value = extractRichText(isElem);
+                }
             }
             
             // 处理布尔值
@@ -804,11 +998,181 @@ document.addEventListener('DOMContentLoaded', () => {
                 td.classList.add('cell-number');
             }
             
-            td.textContent = value;
+            const ref = `${colName(colNum)}${rowNum}`;
+            const hyperlink = hyperlinkMap && hyperlinkMap.get(ref);
+            if (hyperlink) {
+                td.innerHTML = buildHyperlinkHtml(value, hyperlink.target);
+            } else {
+                td.textContent = value;
+            }
+
+            // 溢出文本覆盖（只对文本类生效）
+            if (overflowEndCol && overflowEndCol > colNum) {
+                applyOverflowOverlay(td, value, colNum, overflowEndCol);
+            }
         }
         
         // === 应用样式（无论是否有值） ===
         applyCellStyle(td, cellStyle, rowNum, colNum, resolveStyleIndex);
+    }
+
+    function applyOverflowOverlay(td, text, startCol, endCol) {
+        if (!text) return;
+        const span = document.createElement('span');
+        span.className = 'cell-overflow-text';
+        span.textContent = text;
+        td.textContent = '';
+        td.appendChild(span);
+        const width = calcOverflowWidthPx(startCol, endCol);
+        span.style.width = width + 'px';
+    }
+
+    function calcOverflowWidthPx(startCol, endCol) {
+        let w = 0;
+        for (let c = startCol; c <= endCol; c++) {
+            const cw = calcColumnWidthPx(currentColWidths[c] || 8.43);
+            w += cw;
+        }
+        return w;
+    }
+
+    function measureTextWidth(text, cellStyle) {
+        if (!text) return 0;
+        if (!measureTextWidth._ctx) {
+            const canvas = document.createElement('canvas');
+            measureTextWidth._ctx = canvas.getContext('2d');
+        }
+        const ctx = measureTextWidth._ctx;
+        const font = getFontSpec(cellStyle);
+        ctx.font = font;
+        return ctx.measureText(String(text)).width;
+    }
+
+    function measureMaxDigitWidth() {
+        const ctx = measureTextWidth._ctx || (measureTextWidth._ctx = document.createElement('canvas').getContext('2d'));
+        ctx.font = getFontSpec(null);
+        const digits = ['0','1','2','3','4','5','6','7','8','9'];
+        let max = 0;
+        for (const d of digits) {
+            const w = ctx.measureText(d).width;
+            if (w > max) max = w;
+        }
+        return max || 7;
+    }
+
+    function getFontSizePx(cellStyle) {
+        const fontId = cellStyle ? cellStyle.fontId : null;
+        const font = (fontId !== null && fontId !== undefined) ? fonts[fontId] : null;
+        const fontSizePt = (font && font.size) ? font.size : ((fonts[0] && fonts[0].size) || 11);
+        return (fontSizePt * 96) / 72;
+    }
+
+    function adjustAutoRowHeights(table, rowHeights, defaultRowHeight, freezeInfo) {
+        const rows = table.querySelectorAll('tbody tr');
+        rows.forEach(tr => {
+            const header = tr.querySelector('th[data-row]');
+            if (!header) return;
+            const rowNum = parseInt(header.dataset.row);
+            if (freezeInfo.isFrozen && rowNum <= freezeInfo.frozenRows) return;
+            const rowHeightInfo = rowHeights[rowNum];
+            if (rowHeightInfo && rowHeightInfo.height !== null) return;
+
+            let maxHeight = defaultRowHeight;
+            tr.querySelectorAll('td.cell-wrap').forEach(td => {
+                td.style.height = 'auto';
+                const h = td.scrollHeight || 0;
+                if (h > maxHeight) maxHeight = h;
+            });
+            if (maxHeight > defaultRowHeight) {
+                tr.style.height = `${maxHeight}px`;
+                if (rowHeights[rowNum]) rowHeights[rowNum].calcHeight = maxHeight;
+            }
+        });
+    }
+
+    function getFontSpec(cellStyle) {
+        const fontId = cellStyle ? cellStyle.fontId : null;
+        const font = (fontId !== null && fontId !== undefined) ? fonts[fontId] : null;
+        const fontName = (font && font.name) || (fonts[0] && fonts[0].name) || '等线';
+        const fontWeight = getFontWeight(fontName, font && font.bold);
+        const fontStyle = (font && font.italic) ? 'italic' : 'normal';
+        const fontSizePt = (font && font.size) ? font.size : ((fonts[0] && fonts[0].size) || 11);
+        const fontSizePx = (fontSizePt * 96) / 72;
+        return `${fontStyle} ${fontWeight} ${fontSizePx}px ${getFontFamily(fontName, font && font.bold)}`;
+    }
+
+    function getOverflowEndCol(cellElem, styleIndex, rowNum, colNum, cellMap, mergeSpanMap, resolveStyleIndex) {
+        if (!cellElem) return null;
+        const cellType = cellElem.getAttribute('t');
+        const isTextType = cellType === 's' || cellType === 'str' || cellType === 'inlineStr';
+        if (!isTextType) return null;
+        const cellStyle = (styleIndex !== null && styleIndex !== undefined) ? cellXfs[styleIndex] : null;
+        const wrapText = cellStyle && cellStyle.alignment && cellStyle.alignment.wrapText;
+        if (wrapText) return null;
+        const hAlign = cellStyle && cellStyle.alignment && cellStyle.alignment.horizontal;
+        if (hAlign === 'center' || hAlign === 'right' || hAlign === 'justify' || hAlign === 'distributed') {
+        return null;
+    }
+        const shrinkToFit = cellStyle && cellStyle.alignment && cellStyle.alignment.shrinkToFit;
+        if (shrinkToFit) return null;
+        const rotation = cellStyle && cellStyle.alignment && cellStyle.alignment.textRotation;
+        if (rotation && rotation !== 0) return null;
+
+        const text = getCellDisplayText(cellElem, cellStyle);
+        if (!text) return null;
+
+        // 如果当前单元格在合并区域内，禁用溢出
+        if (mergeSpanMap && mergeSpanMap.has(`${rowNum},${colNum}`)) return null;
+
+        const cellWidth = calcColumnWidthPx(currentColWidths[colNum] || 8.43);
+        const textWidth = measureTextWidth(text, cellStyle);
+        const paddingX = 6; // 左右各 3px
+
+        // 文本本身没有超过当前单元格宽度，则不需要溢出
+        if (textWidth <= Math.max(0, cellWidth - paddingX)) return null;
+
+        // 仅允许溢出到右侧连续空单元格（无值）
+        let endCol = colNum;
+        for (let c = colNum + 1; c <= currentMaxCol; c++) {
+            const key = `${rowNum},${c}`;
+            if (mergeSpanMap && mergeSpanMap.has(key)) break;
+            const neighbor = cellMap[c];
+            if (neighbor) {
+                const neighborText = getCellDisplayText(neighbor, resolveStyleIndex ? resolveStyleIndex(rowNum, c) : null);
+                if (neighborText) break;
+            }
+            endCol = c;
+        }
+
+        return endCol > colNum ? endCol : null;
+    }
+
+
+    function getCellDisplayText(cellElem, styleIndex) {
+        if (!cellElem) return '';
+        const type = cellElem.getAttribute('t');
+        const vElem = cellElem.querySelector('v');
+        let value = vElem ? vElem.textContent : '';
+        if (type === 's' && value) {
+            const idx = parseInt(value);
+            value = sharedStrings[idx] || '';
+        } else if (type === 'inlineStr') {
+            const isElem = cellElem.querySelector('is');
+            if (isElem) {
+                value = extractRichText(isElem);
+            }
+        } else if (type === 'b') {
+            value = value === '1' ? 'TRUE' : 'FALSE';
+        }
+        if ((!type || type === 'n') && value !== '') {
+            const numVal = parseFloat(value);
+            if (!Number.isNaN(numVal)) {
+                const cellStyle = (styleIndex !== null && styleIndex !== undefined) ? cellXfs[styleIndex] : null;
+                const fmtId = cellStyle ? cellStyle.numFmtId : null;
+                value = formatNumber(numVal, fmtId);
+            }
+        }
+        return String(value || '');
     }
 
     function bindHoverEffect(table) {
@@ -894,6 +1258,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 selectedRowCells.forEach(c => c.classList.add('cell-row-highlight'));
             }
+
+            // 调试选中单元格的样式/溢出判断
+            debugSelectedCell(table, row, col);
+        });
+    }
+
+    function debugSelectedCell(table, row, col) {
+        if (!row || !col) return;
+        const key = `${row},${col}`;
+        const cellElem = table._cellElemMap ? table._cellElemMap.get(key) : null;
+        const resolveStyleIndex = table._resolveStyleIndex;
+        const styleIndex = resolveStyleIndex ? resolveStyleIndex(parseInt(row), parseInt(col)) : null;
+        const cellStyle = (styleIndex !== null && styleIndex !== undefined) ? cellXfs[styleIndex] : null;
+        const text = cellElem ? getCellDisplayText(cellElem, cellStyle) : '';
+        const cellWidth = calcColumnWidthPx((table._colWidths && table._colWidths[col]) || 8.43);
+        const textWidth = measureTextWidth(text, cellStyle);
+        const overflowEnd = cellElem
+            ? getOverflowEndCol(cellElem, styleIndex, parseInt(row), parseInt(col), {}, table._mergeSpanMap, resolveStyleIndex)
+            : null;
+
+        console.log('[Cell Debug]', {
+            cell: `${col}${row}`,
+            styleIndex,
+            alignment: cellStyle ? cellStyle.alignment : null,
+            wrapText: cellStyle && cellStyle.alignment ? cellStyle.alignment.wrapText : null,
+            shrinkToFit: cellStyle && cellStyle.alignment ? cellStyle.alignment.shrinkToFit : null,
+            textRotation: cellStyle && cellStyle.alignment ? cellStyle.alignment.textRotation : null,
+            text,
+            textWidth,
+            cellWidth,
+            overflowEnd
         });
     }
 
@@ -1017,6 +1412,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (a.wrapText) {
                 td.style.whiteSpace = 'pre-wrap';
                 td.style.wordBreak = 'break-word';
+                td.classList.add('cell-wrap');
             }
             if (a.indent) {
                 td.style.paddingLeft = (a.indent * 10) + 'px';
@@ -1200,6 +1596,16 @@ document.addEventListener('DOMContentLoaded', () => {
             n = Math.floor((n - 1) / 26);
         }
         return s;
+    }
+
+    function calcColumnWidthPx(excelWidth) {
+        // Excel column width to pixels based on max digit width (MDW)
+        const w = Number(excelWidth);
+        if (!Number.isFinite(w)) return 64;
+        const mdw = currentMDW || 7;
+        if (w <= 0) return 0;
+        const pixels = Math.floor(((256 * w + Math.floor(128 / mdw)) / 256) * mdw) + 5;
+        return pixels;
     }
 
     function getFontFamily(name, bold) {
