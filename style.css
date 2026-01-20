@@ -433,6 +433,13 @@ main {
     line-height: 1.15;
 }
 
+/* 固定高度的行：强制限制单元格高度，即使设置了 white-space: pre-wrap */
+.spreadsheet-table tr.fixed-height-row td {
+    max-height: var(--row-fixed-height, inherit) !important;
+    overflow: hidden !important;
+    height: var(--row-fixed-height, inherit) !important;
+}
+
 /* 数字类型默认右对齐 */
 .spreadsheet-table td.cell-number {
     text-align: right;

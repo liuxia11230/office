@@ -26,8 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let sharedStrings = [];    // 共享字符串
     let numFmts = {};          // 数字格式
     let currentMaxCol = 0;     // 当前工作表最大列数（用于外侧边框处理）
-let currentColWidths = {}; // 当前工作表列宽（用于溢出计算）
-let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
+    let currentColWidths = {}; // 当前工作表列宽（用于溢出计算）
+    let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
 
     // 默认主题颜色
     const DEFAULT_THEME = {
@@ -770,14 +770,17 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
         let lastRow = 0;
         
         // 预先收集所有行的高度（用于计算冻结行的 top 值）
+        // 原则1：如果XML中有ht属性，严格按照该高度渲染
+        // 原则2：如果XML中没有ht属性，则为自动高度（null表示自动高度）
         const rowHeights = {};
         rows.forEach(rowElem => {
             const rowNum = parseInt(rowElem.getAttribute('r'));
             const ht = rowElem.getAttribute('ht');
-            const customHeight = rowElem.getAttribute('customHeight') === 'true';
+            // Excel 行高单位是点（points），转换为像素：点 * (96 DPI / 72) = 点 * 1.3333...
+            const htPx = ht ? (parseFloat(ht) * 96 / 72) : defaultRowHeight;
             rowHeights[rowNum] = {
-                height: (customHeight && ht) ? (parseFloat(ht) * 1.33) : null,
-                calcHeight: ht ? (parseFloat(ht) * 1.33) : defaultRowHeight
+                height: ht ? htPx : null, // 如果XML中有ht属性，使用该高度；否则为null（自动高度）
+                calcHeight: htPx // 用于布局计算（冻结行 top 值等）
             };
         });
         
@@ -820,10 +823,14 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
             
             const tr = document.createElement('tr');
 
-            // 行高
+            // 行高（原则1：如果 XML 中指定了高度，严格按照该高度设置）
             const rowHeightInfo = rowHeights[rowNum];
             if (rowHeightInfo && rowHeightInfo.height !== null) {
-                tr.style.height = rowHeightInfo.height + 'px';
+                // 使用 setProperty 和 important 确保不被 CSS 覆盖
+                tr.style.setProperty('height', rowHeightInfo.height + 'px', 'important');
+                // 添加 class 标记，用于 CSS 强制限制单元格高度
+                tr.classList.add('fixed-height-row');
+                tr.dataset.rowHeight = String(rowHeightInfo.height);
             }
             
             // 检查是否是冻结行
@@ -867,6 +874,16 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
                     td.colSpan = merge.colspan;
                 }
                 
+                // 原则1：如果 XML 中指定了行高，先设置 td 的高度限制（在使用 white-space: pre-wrap 之前）
+                // 这样即使设置了 white-space: pre-wrap，高度也不会被内容撑开
+                if (rowHeightInfo && rowHeightInfo.height !== null) {
+                    td.style.setProperty('height', rowHeightInfo.height + 'px', 'important');
+                    td.style.setProperty('max-height', rowHeightInfo.height + 'px', 'important');
+                    td.style.setProperty('overflow', 'hidden', 'important');
+                    // 同时设置 CSS 变量，供 CSS 规则使用
+                    td.style.setProperty('--row-fixed-height', rowHeightInfo.height + 'px');
+                }
+                
                 const cellElem = cellMap[c];
                 const resolvedStyleIndex = resolveStyleIndex(rowNum, c);
                 const cellStyle = (resolvedStyleIndex !== null && resolvedStyleIndex !== undefined)
@@ -892,6 +909,13 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
                 } else if (resolvedStyleIndex !== null && !Number.isNaN(resolvedStyleIndex)) {
                     // 空单元格也要应用样式（尤其是边框）
                     renderCell(td, null, resolvedStyleIndex, rowNum, c, resolveStyleIndex, overflowEndCol, hyperlinkMap);
+                }
+
+                // 在设置 white-space: pre-wrap 之后，再次强制设置高度限制（表格单元格需要这样做）
+                if (rowHeightInfo && rowHeightInfo.height !== null) {
+                    td.style.setProperty('height', rowHeightInfo.height + 'px', 'important');
+                    td.style.setProperty('max-height', rowHeightInfo.height + 'px', 'important');
+                    td.style.setProperty('overflow', 'hidden', 'important');
                 }
 
                 if (overflowEndCol && overflowEndCol > c) {
@@ -928,6 +952,13 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
                     }
                 }
 
+                // 原则1：如果 XML 中指定了行高，严格按照该高度设置 td 的高度（使用 important 确保不被 CSS 覆盖）
+                if (rowHeightInfo && rowHeightInfo.height !== null) {
+                    td.style.setProperty('height', rowHeightInfo.height + 'px', 'important');
+                    td.style.setProperty('max-height', rowHeightInfo.height + 'px', 'important');
+                    td.style.setProperty('overflow', 'hidden', 'important');
+                }
+                
                 tr.appendChild(td);
                 
                 // 更新冻结列偏移
@@ -1000,10 +1031,37 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
             
             const ref = `${colName(colNum)}${rowNum}`;
             const hyperlink = hyperlinkMap && hyperlinkMap.get(ref);
-            if (hyperlink) {
-                td.innerHTML = buildHyperlinkHtml(value, hyperlink.target);
+            
+            // 检查是否是固定高度的行，如果是，需要将内容包装在容器中以限制高度
+            const isFixedHeight = td.style.getPropertyValue('--row-fixed-height');
+            if (isFixedHeight && cellStyle && cellStyle.alignment && cellStyle.alignment.wrapText) {
+                // 固定高度 + wrapText：使用包装容器来限制高度
+                const contentWrapper = document.createElement('div');
+                contentWrapper.className = 'cell-content-wrapper';
+                // 容器高度严格按照 XML 解析的固定高度，宽度填充 td
+                contentWrapper.style.cssText = `
+                    width: 100%;
+                    height: ${isFixedHeight};
+                    max-height: ${isFixedHeight};
+                    box-sizing: border-box;
+                    overflow: hidden;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                `;
+                if (hyperlink) {
+                    contentWrapper.innerHTML = buildHyperlinkHtml(value, hyperlink.target);
+                } else {
+                    contentWrapper.textContent = value;
+                }
+                td.textContent = ''; // 清空 td 的内容
+                td.appendChild(contentWrapper);
             } else {
-                td.textContent = value;
+                // 非固定高度或非 wrapText：正常渲染
+                if (hyperlink) {
+                    td.innerHTML = buildHyperlinkHtml(value, hyperlink.target);
+                } else {
+                    td.textContent = value;
+                }
             }
 
             // 溢出文本覆盖（只对文本类生效）
@@ -1295,19 +1353,41 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
     function applyCellStyle(td, cellStyle, rowNum, colNum, resolveStyleIndex) {
         if (!cellStyle) return;
         
+        // 检测是否有包装容器
+        const contentWrapper = td.querySelector('.cell-content-wrapper');
+        const hasWrapper = !!contentWrapper;
+        
         // 字体
         const font = fonts[cellStyle.fontId];
         if (font) {
             const fontName = font.name || (fonts[0] && fonts[0].name) || '等线';
-            td.style.fontFamily = getFontFamily(fontName, font.bold);
-            if (font.size) td.style.fontSize = font.size + 'pt';
-            td.style.fontWeight = getFontWeight(fontName, font.bold);
-            if (font.italic) td.style.fontStyle = 'italic';
-            if (font.underline) td.style.textDecoration = 'underline';
-            if (font.strike) td.style.textDecoration = (td.style.textDecoration || '') + ' line-through';
-            if (font.color) {
-                const color = resolveColor(font.color);
-                if (color) td.style.color = color;
+            const fontFamily = getFontFamily(fontName, font.bold);
+            const fontWeight = getFontWeight(fontName, font.bold);
+            
+            if (hasWrapper) {
+                // 有包装容器时，所有样式应用到容器上
+                contentWrapper.style.fontFamily = fontFamily;
+                if (font.size) contentWrapper.style.fontSize = font.size + 'pt';
+                contentWrapper.style.fontWeight = fontWeight;
+                if (font.italic) contentWrapper.style.fontStyle = 'italic';
+                if (font.underline) contentWrapper.style.textDecoration = 'underline';
+                if (font.strike) contentWrapper.style.textDecoration = (contentWrapper.style.textDecoration || '') + ' line-through';
+                if (font.color) {
+                    const color = resolveColor(font.color);
+                    if (color) contentWrapper.style.color = color;
+                }
+            } else {
+                // 没有包装容器时，样式应用到 td 上
+                td.style.fontFamily = fontFamily;
+                if (font.size) td.style.fontSize = font.size + 'pt';
+                td.style.fontWeight = fontWeight;
+                if (font.italic) td.style.fontStyle = 'italic';
+                if (font.underline) td.style.textDecoration = 'underline';
+                if (font.strike) td.style.textDecoration = (td.style.textDecoration || '') + ' line-through';
+                if (font.color) {
+                    const color = resolveColor(font.color);
+                    if (color) td.style.color = color;
+                }
             }
         }
         
@@ -1403,19 +1483,48 @@ let currentMDW = 7;        // 当前默认字体的最大数字宽度（px）
             const a = cellStyle.alignment;
             if (a.horizontal) {
                 const map = { left: 'left', center: 'center', right: 'right', justify: 'justify' };
-                td.style.textAlign = map[a.horizontal] || a.horizontal;
+                const alignValue = map[a.horizontal] || a.horizontal;
+                if (hasWrapper) {
+                    contentWrapper.style.textAlign = alignValue;
+                } else {
+                    td.style.textAlign = alignValue;
+                }
             }
             if (a.vertical) {
                 const map = { top: 'top', center: 'middle', bottom: 'bottom' };
-                td.style.verticalAlign = map[a.vertical] || 'bottom';
+                const verticalAlign = map[a.vertical] || 'bottom';
+                if (hasWrapper) {
+                    // 使用 flexbox 实现垂直对齐
+                    contentWrapper.style.display = 'flex';
+                    contentWrapper.style.flexDirection = 'column';
+                    if (verticalAlign === 'top') {
+                        contentWrapper.style.justifyContent = 'flex-start';
+                    } else if (verticalAlign === 'middle' || verticalAlign === 'center') {
+                        contentWrapper.style.justifyContent = 'center';
+                    } else {
+                        contentWrapper.style.justifyContent = 'flex-end';
+                    }
+                } else {
+                    td.style.verticalAlign = verticalAlign;
+                }
             }
             if (a.wrapText) {
-                td.style.whiteSpace = 'pre-wrap';
-                td.style.wordBreak = 'break-word';
+                // 如果是固定高度的行，内容已经在包装容器中（在 renderCell 中处理），不需要在 td 上设置 white-space
+                const isFixedHeight = td.style.getPropertyValue('--row-fixed-height');
+                if (!isFixedHeight) {
+                    // 只有非固定高度的行才在 td 上设置 white-space
+                    td.style.whiteSpace = 'pre-wrap';
+                    td.style.wordBreak = 'break-word';
+                }
                 td.classList.add('cell-wrap');
             }
             if (a.indent) {
-                td.style.paddingLeft = (a.indent * 10) + 'px';
+                const indentPx = (a.indent * 10) + 'px';
+                if (hasWrapper) {
+                    contentWrapper.style.paddingLeft = indentPx;
+                } else {
+                    td.style.paddingLeft = indentPx;
+                }
             }
         }
     }
