@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadWrapper = document.getElementById('upload-wrapper');
     const fileNameDisplay = document.getElementById('file-name');
     const cellInfo = document.getElementById('cell-info');
+    const cellInfoBar = document.getElementById('cell-info-bar');
+    const cellPosition = document.getElementById('cell-position');
+    const cellInfoContent = document.getElementById('cell-info-content');
 
     // ==========================================
     // 样式存储
@@ -958,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     td.style.setProperty('max-height', rowHeightInfo.height + 'px', 'important');
                     td.style.setProperty('overflow', 'hidden', 'important');
                 }
-                
+
                 tr.appendChild(td);
                 
                 // 更新冻结列偏移
@@ -1319,8 +1322,67 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 调试选中单元格的样式/溢出判断
             debugSelectedCell(table, row, col);
+            
+            // 更新顶部单元格信息栏
+            updateCellInfoBar(table, row, col);
         });
     }
+
+    function updateCellInfoBar(table, row, col) {
+        if (!row || !col || !cellPosition || !cellInfoContent) return;
+        
+        const colNum = parseInt(col);
+        const rowNum = parseInt(row);
+        const cellRef = `${colName(colNum)}${rowNum}`;
+        cellPosition.textContent = cellRef;
+        
+        // 获取单元格内容
+        const key = `${rowNum},${colNum}`;
+        const cellElem = table._cellElemMap ? table._cellElemMap.get(key) : null;
+        const resolveStyleIndex = table._resolveStyleIndex;
+        const styleIndex = resolveStyleIndex ? resolveStyleIndex(rowNum, colNum) : null;
+        const cellStyle = (styleIndex !== null && styleIndex !== undefined) ? cellXfs[styleIndex] : null;
+        const text = cellElem ? getCellDisplayText(cellElem, cellStyle) : '';
+        
+        cellInfoContent.textContent = text || '(空)';
+    }
+
+    function bindCellInfoBarResize() {
+        if (!cellInfoBar) return;
+        const resizeHandle = cellInfoBar.querySelector('.cell-info-resize-handle');
+        if (!resizeHandle) return;
+        
+        let isResizing = false;
+        let startY;
+        let startHeight;
+
+        resizeHandle.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            startY = e.clientY;
+            startHeight = cellInfoBar.offsetHeight;
+            cellInfoBar.style.transition = 'none';
+            document.body.style.cursor = 'ns-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const deltaY = e.clientY - startY;
+            const newHeight = Math.max(28, startHeight + deltaY);
+            cellInfoBar.style.height = `${newHeight}px`;
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizing) {
+                isResizing = false;
+                cellInfoBar.style.transition = '';
+                document.body.style.cursor = '';
+            }
+        });
+    }
+
+    // 初始化单元格信息栏的拖拽调整功能
+    bindCellInfoBarResize();
 
     function debugSelectedCell(table, row, col) {
         if (!row || !col) return;

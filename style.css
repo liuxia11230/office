@@ -228,14 +228,80 @@ main {
 /* ===== 预览容器 ===== */
 .preview-container {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
     background: #ffffff;
     position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .table-wrapper {
     min-width: 100%;
-    min-height: 100%;
+    flex: 1;
+    overflow: auto;
+}
+
+/* ===== 单元格信息栏（顶部可拉伸） ===== */
+.cell-info-bar {
+    background: linear-gradient(180deg, #f9f9f9 0%, #f3f3f3 100%);
+    border-bottom: 1px solid #d4d4d4;
+    display: flex;
+    align-items: stretch;
+    min-height: 28px;
+    max-height: 50vh;
+    height: 28px;
+    position: relative;
+    overflow: hidden;
+    z-index: 40;
+    flex-shrink: 0;
+}
+
+.cell-info-left {
+    padding: 4px 12px;
+    border-right: 1px solid #d4d4d4;
+    display: flex;
+    align-items: center;
+    min-width: 80px;
+    background: #ffffff;
+    font-size: 11px;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #333333;
+    font-weight: 500;
+}
+
+.cell-info-right {
+    flex: 1;
+    padding: 4px 12px;
+    display: flex;
+    align-items: flex-start;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.cell-info-content {
+    width: 100%;
+    font-size: 11px;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #333333;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: auto;
+    line-height: 1.4;
+}
+
+.cell-info-resize-handle {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    cursor: ns-resize;
+    background: transparent;
+    z-index: 1;
+}
+
+.cell-info-bar:hover .cell-info-resize-handle {
+    background: rgba(33, 115, 70, 0.2);
 }
 
 /* ===== Excel 表格样式 ===== */
