@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cellPosition = document.getElementById('cell-position');
     const cellInfoContent = document.getElementById('cell-info-content');
 
-    // 初始化 Excel Viewer
+    // 初始化预览器
     const excelViewer = new ExcelViewer({
         tableWrapper,
         controls,
@@ -28,6 +28,12 @@ document.addEventListener('DOMContentLoaded', () => {
         cellInfoBar,
         cellPosition,
         cellInfoContent
+    });
+
+    const pdfViewer = new PDFViewer({
+        previewContainer,
+        uploadWrapper,
+        controls
     });
 
     // ==========================================
@@ -53,10 +59,21 @@ document.addEventListener('DOMContentLoaded', () => {
         
         try {
             if (fileExtension === 'xlsx' || fileExtension === 'xls') {
-                // Excel 文件
+                // Excel 文件 - 使用 ExcelViewer
+                pdfViewer.destroy();
+                // 显示 Excel 相关元素，隐藏 PDF 容器
+                const tableWrapper = previewContainer.querySelector('.table-wrapper');
+                const pdfContainer = previewContainer.querySelector('.pdf-viewer-container');
+                const cellInfoBar = previewContainer.querySelector('.cell-info-bar');
+                if (tableWrapper) tableWrapper.style.display = '';
+                if (pdfContainer) pdfContainer.style.display = 'none';
+                if (cellInfoBar) cellInfoBar.style.display = '';
                 await excelViewer.loadFile(file);
+            } else if (fileExtension === 'pdf') {
+                // PDF 文件 - 使用 PDFViewer
+                await pdfViewer.loadFile(file);
             } else {
-                // 其他格式（后续可以添加 PDF、DOC 等）
+                // 其他格式（后续可以添加 DOC 等）
                 alert('暂不支持 ' + fileExtension.toUpperCase() + ' 格式');
             }
         } catch (err) {

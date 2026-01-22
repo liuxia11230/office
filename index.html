@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel Previewer - Office Style</title>
+    <title>Office Viewer - Excel & PDF Previewer</title>
     
     <!-- Office常用字体 - 通过Google Fonts加载部分 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,6 +14,23 @@
     
     <!-- JSZip for extracting xlsx files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <!-- PDFium.js for PDF rendering -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@hyzyla/pdfium@2.1.9/dist/index.esm.cdn.js"></script>
+    
+    <!-- PDF.js for bookmarks/outline extraction -->
+    <script>
+        // 使用 CDN 版本的 PDF.js，用于提取书签
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+        script.onload = function() {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            window.pdfjsLib = pdfjsLib;
+            window.pdfjsReady = true;
+            window.dispatchEvent(new Event('pdfjsReady'));
+        };
+        document.head.appendChild(script);
+    </script>
     
     <link rel="stylesheet" href="style.css">
 </head>
@@ -36,14 +53,14 @@
         <main>
             <div class="upload-wrapper" id="upload-wrapper">
                 <div class="upload-area" id="drop-zone">
-                    <input type="file" id="file-input" accept=".xlsx, .xls, .csv" hidden>
+                    <input type="file" id="file-input" accept=".xlsx, .xls, .csv, .pdf" hidden>
                     <div class="upload-content">
                         <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <p class="upload-text">点击上传或拖拽文件到此处</p>
-                        <p class="upload-subtext">支持 .xlsx, .xls, .csv 格式</p>
+                        <p class="upload-subtext">支持 .xlsx, .xls, .csv, .pdf 格式</p>
                     </div>
                 </div>
             </div>
@@ -73,7 +90,10 @@
             </div>
         </main>
     </div>
+    <!-- PDFium.js library - 使用 CDN 版本，支持本地预览 -->
+    <!-- PDFium.js 将在 pdf-viewer.js 中动态加载 -->
     <script src="excel-viewer.js"></script>
+    <script src="pdf-viewer.js"></script>
     <script src="script.js"></script>
 </body>
 
