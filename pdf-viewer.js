@@ -487,6 +487,70 @@ class PDFViewer {
         }
     }
 
+    /**
+     * 解析书签目标并跳转到对应页面。
+     * PDF.js 的 outline item.dest 可能是：字符串（命名目标）或数组（显式目标）。
+     * getDestination() 仅接受字符串，传入数组会报错导致无法定位。此处按 PDF.js 官方实现处理。
+     */
+    async goToOutlineDest(dest) {
+        if (!this.pdfjsDoc) return;
+        let explicitDest;
+        if (typeof dest === 'string') {
+            explicitDest = await this.pdfjsDoc.getDestination(dest);
+        } else if (Array.isArray(dest)) {
+            explicitDest = dest;
+        } else {
+            console.warn('书签目标格式不支持:', dest);
+            return;
+        }
+        if (!Array.isArray(explicitDest) || explicitDest.length === 0) {
+            console.warn('书签目标解析结果无效:', explicitDest);
+            return;
+        }
+        const destRef = explicitDest[0];
+        let pageNumber;
+        if (destRef && typeof destRef === 'object') {
+            const pageIndex = await this.pdfjsDoc.getPageIndex(destRef);
+            pageNumber = pageIndex + 1;
+        } else if (Number.isInteger(destRef)) {
+            pageNumber = destRef + 1;
+        } else {
+            console.warn('书签目标无法解析为页码:', destRef);
+            return;
+        }
+        let pageCount = this.pdfDoc?.pageCount ?? 0;
+        if (!pageCount && this.pdfDoc) {
+            for (const p of this.pdfDoc.pages()) pageCount = p.number + 1;
+            this.pdfDoc.pageCount = pageCount;
+        }
+        if (pageNumber < 1 || pageNumber > pageCount) {
+            console.warn('书签页码超出范围:', pageNumber, '总页数:', pageCount);
+            return;
+        }
+        await this.goToPage(pageNumber, explicitDest);
+    }
+
+    /**
+     * 从 PDF 目标数组解析「距页面顶部的像素偏移」，用于贴顶滚动。
+     * PDF 坐标系 y=0 在底部，需转为自顶向下的偏移。
+     * 支持 XYZ / FitH / FitR；Fit、FitV 等无 top 的视为 0（页面顶部）。
+     */
+    getDestOffsetFromTop(destArray, pageDiv) {
+        if (!destArray || !Array.isArray(destArray) || !pageDiv) return null;
+        const fitType = destArray[1];
+        const name = typeof fitType === 'object' && fitType?.name ? fitType.name : fitType;
+        const h = parseFloat(pageDiv.dataset.pageHeightPoints);
+        if (!Number.isFinite(h) || h <= 0) return null;
+        let pdfTop = undefined;
+        if (name === 'XYZ' && destArray.length >= 4) pdfTop = destArray[3];
+        else if (name === 'FitH' && destArray.length >= 3) pdfTop = destArray[2];
+        else if (name === 'FitR' && destArray.length >= 6) pdfTop = destArray[5];
+        if (pdfTop == null || !Number.isFinite(pdfTop)) return 0;
+        const pageHeightPx = h * this.scale;
+        const offsetFromTop = Math.max(0, Math.min(pageHeightPx, (h - pdfTop) * this.scale));
+        return offsetFromTop;
+    }
+
     async renderPDFJSOutline(outline) {
         if (!outline || outline.length === 0) {
             this.outlineContainer.innerHTML = '<div style="color: #999; font-size: 12px;">此 PDF 没有书签</div>';
@@ -537,11 +601,9 @@ class PDFViewer {
             a.addEventListener('click', async (e) => {
                 e.preventDefault();
                 try {
-                    const dest = await this.pdfjsDoc.getDestination(item.dest);
-                    const pageIndex = await this.pdfjsDoc.getPageIndex(dest[0]);
-                    await this.goToPage(pageIndex + 1);
+                    await this.goToOutlineDest(item.dest);
                 } catch (err) {
-                    console.error('跳转失败:', err);
+                    console.error('书签跳转失败:', err);
                 }
             });
         }
@@ -978,10 +1040,12 @@ class PDFViewer {
                 dataLength: image.data.length
             });
             
-            // 创建页面容器
+            // 创建页面容器（存页面尺寸 point，供书签贴顶滚动用）
             const pageDiv = document.createElement('div');
             pageDiv.className = 'pdf-page';
             pageDiv.setAttribute('data-page', pageNumber + 1);
+            pageDiv.dataset.pageHeightPoints = String(image.originalHeight);
+            pageDiv.dataset.pageWidthPoints = String(image.originalWidth);
             pageDiv.style.cssText = `
                 position: relative;
                 margin-bottom: 20px;
@@ -1073,10 +1137,13 @@ class PDFViewer {
         }
     }
 
-    async goToPage(pageNum) {
+    /**
+     * @param {number} pageNum - 1-based 页码
+     * @param {Array|null} [destArray] - PDF 目标数组（书签跳转时传入），用于贴顶滚动
+     */
+    async goToPage(pageNum, destArray) {
         if (!this.pdfDoc) return;
         
-        // 获取页数
         let pageCount = this.pdfDoc.pageCount;
         if (!pageCount) {
             pageCount = 0;
@@ -1086,16 +1153,33 @@ class PDFViewer {
             this.pdfDoc.pageCount = pageCount;
         }
         
-        if (pageNum >= 1 && pageNum <= pageCount) {
-            this.currentPage = pageNum;
-            this.updatePageInfo();
-            this.updateThumbnailHighlight();
-            // 滚动到对应页面
-            const pageDiv = this.viewerArea.querySelector(`.pdf-page[data-page="${pageNum}"]`);
-            if (pageDiv) {
+        if (pageNum < 1 || pageNum > pageCount) return;
+        
+        this.currentPage = pageNum;
+        this.updatePageInfo();
+        this.updateThumbnailHighlight();
+        
+        const pageDiv = this.viewerArea?.querySelector(`.pdf-page[data-page="${pageNum}"]`);
+        if (!pageDiv) return;
+        
+        const offsetFromTop = destArray ? this.getDestOffsetFromTop(destArray, pageDiv) : null;
+        const useAnchor = offsetFromTop != null && offsetFromTop > 0;
+        
+        requestAnimationFrame(() => {
+            if (useAnchor) {
+                const anchor = document.createElement('div');
+                anchor.style.cssText = `
+                    position: absolute; left: 0; top: ${offsetFromTop}px;
+                    width: 1px; height: 1px; pointer-events: none;
+                `;
+                anchor.setAttribute('aria-hidden', 'true');
+                pageDiv.appendChild(anchor);
+                anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                setTimeout(() => anchor.remove(), 600);
+            } else {
                 pageDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
-        }
+        });
     }
 
     zoomIn() {
