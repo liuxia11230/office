@@ -293,6 +293,8 @@ class PDFViewer {
                 
                 // 设置控制栏
                 this.setupControls();
+                // 右键菜单：复制
+                this.setupContextMenu();
             }
             
         } catch (err) {
@@ -1091,11 +1093,92 @@ class PDFViewer {
             pageDiv.appendChild(canvas);
             this.viewerArea.appendChild(pageDiv);
             
+            await this.renderTextLayer(pageNumber + 1, pageDiv, displayWidth, displayHeight, image.originalWidth, image.originalHeight);
+            
             console.log(`页面 ${pageNumber + 1} 显示完成`);
             
         } catch (err) {
             console.error(`页面 ${pageIndex + 1} 渲染失败:`, err);
             console.error('错误堆栈:', err.stack);
+        }
+    }
+
+    /**
+     * 文字选中功能：参考 getTextContent + 透明文本层方案
+     * - 使用 PDF.js getTextContent 获取每页文本及位置
+     * - 创建透明 div 覆盖在 canvas 上，按 transform 定位 span
+     * - 用户可拖选文字，复制时通过 copy 事件写入剪贴板
+     * @see https://juejin.cn/post/7047022519294885924
+     * @see https://www.cnblogs.com/jiayouba/p/14969611.html
+     */
+    async renderTextLayer(pageNum, pageDiv, displayWidth, displayHeight, pageWidthPoints, pageHeightPoints) {
+        if (!this.pdfjsDoc) return;
+        try {
+            const pdfPage = await this.pdfjsDoc.getPage(pageNum);
+            const textContent = await pdfPage.getTextContent({ normalizeWhitespace: false });
+            const items = textContent?.items;
+            if (!items || items.length === 0) return;
+
+            const layer = document.createElement('div');
+            layer.className = 'textLayer';
+            layer.setAttribute('aria-hidden', 'true');
+            layer.style.cssText = `
+                position: absolute; left: 0; top: 0;
+                width: ${displayWidth}px; height: ${displayHeight}px;
+                pointer-events: auto;
+            `;
+
+            const scale = this.scale;
+            const seen = new Set();
+            for (const item of items) {
+                if (item.str === undefined) continue;
+                const t = item.transform;
+                if (!t || t.length < 6) continue;
+                const x = t[4], y = t[5];
+                const fs = Math.max(1, (Math.abs(t[0]) + Math.abs(t[3])) / 2 || 12);
+                const fontSizePx = Math.max(4, fs * scale);
+                const chars = Array.from(item.str);
+                const n = chars.length;
+                if (n === 0) continue;
+                const w = typeof item.width === 'number' && item.width > 0 ? item.width : fs * n * 0.6;
+                const advance = w / n;
+                const advancePx = advance * scale;
+                const ascent = 0.82;
+                const topPx = (pageHeightPoints - y - fs * ascent) * scale;
+                const grid = Math.max(2, advancePx * 0.75);
+                const topKey = Math.round(topPx / grid) * grid;
+                for (let i = 0; i < n; i++) {
+                    const ch = chars[i];
+                    if (this._isInvisibleChar(ch)) continue;
+                    const leftPx = (x + i * advance) * scale;
+                    const leftKey = Math.round(leftPx / grid) * grid;
+                    const key = `${leftKey}|${topKey}|${ch}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    const span = document.createElement('span');
+                    span.textContent = ch;
+                    span.style.cssText = `
+                        left: ${leftPx}px; top: ${topPx}px;
+                        width: ${advancePx}px; height: ${fontSizePx}px;
+                        font-size: ${fontSizePx}px; font-family: inherit; line-height: 1;
+                        display: inline-block; overflow: hidden; box-sizing: border-box;
+                    `;
+                    layer.appendChild(span);
+                }
+            }
+
+            layer.addEventListener('copy', (e) => {
+                const sel = document.getSelection();
+                if (sel && sel.toString().length > 0) {
+                    const text = this._normalizeCopyText(sel.toString());
+                    if (text) e.clipboardData.setData('text/plain', text);
+                    e.preventDefault();
+                }
+            });
+
+            pageDiv.appendChild(layer);
+        } catch (err) {
+            console.warn(`文本层 第 ${pageNum} 页 渲染失败:`, err);
         }
     }
 
@@ -1228,6 +1311,124 @@ class PDFViewer {
         }
     }
 
+    /**
+     * 右键菜单：复制。在查看区域右击显示「复制」，有选区时点击即复制到剪贴板。
+     */
+    setupContextMenu() {
+        if (!this.viewerArea) return;
+        const handler = (e) => {
+            e.preventDefault();
+            this._closeContextMenu();
+            const sel = document.getSelection();
+            const hasSel = sel && sel.toString().length > 0;
+            const selectedText = hasSel ? this._normalizeCopyText(sel.toString()) : '';
+            const menu = document.createElement('div');
+            menu.className = 'pdf-ctx-menu';
+            menu.style.cssText = `
+                position: fixed; z-index: 10000;
+                left: ${e.clientX}px; top: ${e.clientY}px;
+                min-width: 100px; padding: 4px 0;
+                background: #fff; border: 1px solid #ddd;
+                border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                font-size: 13px; font-family: inherit;
+            `;
+            const item = document.createElement('div');
+            item.textContent = '复制';
+            item.style.cssText = `
+                padding: 6px 14px; cursor: ${hasSel ? 'pointer' : 'default'};
+                color: ${hasSel ? '#333' : '#999'};
+            `;
+            item.addEventListener('mouseenter', () => {
+                if (hasSel) item.style.background = 'var(--selection-bg, rgba(33,115,70,0.1))';
+            });
+            item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
+            item.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+            });
+            item.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                if (!hasSel || !selectedText) return;
+                const doCopy = () => {
+                    if (navigator.clipboard?.writeText) {
+                        navigator.clipboard.writeText(selectedText).then(() => {}, () => fallbackCopy(selectedText));
+                    } else {
+                        fallbackCopy(selectedText);
+                    }
+                };
+                doCopy();
+                this._closeContextMenu();
+            });
+            menu.appendChild(item);
+            document.body.appendChild(menu);
+            this._ctxMenu = menu;
+
+            const closeOnOutside = (ev) => {
+                if (menu.parentNode && !menu.contains(ev.target)) {
+                    this._closeContextMenu();
+                    document.removeEventListener('mousedown', closeOnOutside);
+                }
+            };
+            const raf = requestAnimationFrame(() => {
+                document.addEventListener('mousedown', closeOnOutside);
+            });
+            this._ctxMenuClose = () => {
+                cancelAnimationFrame(raf);
+                document.removeEventListener('mousedown', closeOnOutside);
+            };
+        };
+        const fallbackCopy = (text) => {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (_) {}
+            ta.remove();
+        };
+        if (this._ctxMenuHandler) {
+            this.viewerArea.removeEventListener('contextmenu', this._ctxMenuHandler);
+        }
+        this._ctxMenuHandler = handler;
+        this.viewerArea.addEventListener('contextmenu', handler);
+    }
+
+    _closeContextMenu() {
+        if (this._ctxMenuClose) {
+            this._ctxMenuClose();
+            this._ctxMenuClose = null;
+        }
+        if (this._ctxMenu?.parentNode) {
+            this._ctxMenu.parentNode.removeChild(this._ctxMenu);
+            this._ctxMenu = null;
+        }
+    }
+
+    /** 是否为零宽/不可见字符（不建 span，避免 i、d 间多余 span 及复制异常）。 */
+    _isInvisibleChar(c) {
+        if (!c || c.length > 1) return false;
+        const code = c.charCodeAt(0);
+        if (code >= 0x200b && code <= 0x200f) return true;
+        if (code === 0x2028 || code === 0x2029 || code === 0xfeff || code === 0x00ad) return true;
+        if (code >= 0x2060 && code <= 0x2064) return true;
+        return false;
+    }
+
+    /**
+     * 复制前规范化：去掉 \\0，若为「每字重复一次」则去重（部分 PDF 同文多 item 导致 AAnnddrrooiidd）。
+     */
+    _normalizeCopyText(str) {
+        if (!str || typeof str !== 'string') return '';
+        const s = str.replace(/\u0000/g, '');
+        if (s.length % 2 !== 0) return s;
+        let out = '';
+        for (let i = 0; i < s.length; i += 2) {
+            if (s[i] !== s[i + 1]) return s;
+            out += s[i];
+        }
+        return out;
+    }
+
     destroy() {
         // 销毁 PDFium.js 文档
         if (this.pdfDoc) {
@@ -1250,6 +1451,9 @@ class PDFViewer {
         }
         
         this.currentPage = 1;
+        
+        this._closeContextMenu();
+        this._ctxMenuHandler = null;
         
         // 隐藏 PDF 容器
         const pdfContainer = this.previewContainer.querySelector('.pdf-viewer-container');

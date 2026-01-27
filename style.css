@@ -781,7 +781,7 @@ main {
     position: relative;
 }
 
-/* 文本层样式 - 支持文字选择和复制 */
+/* 文本层：透明 overlay，支持选中、复制（参考 PDF.js / getTextContent 方案） */
 .textLayer {
     position: absolute;
     left: 0;
@@ -799,19 +799,20 @@ main {
     position: absolute;
     white-space: pre;
     cursor: text;
-    transform-origin: 0% 0%;
+    transform-origin: 0 0;
     user-select: text;
     -webkit-user-select: text;
     -moz-user-select: text;
 }
 
-/* 选中文本的样式 */
 .textLayer ::selection {
-    background: rgba(0, 0, 255, 0.3);
+    background: var(--selection-bg, rgba(33, 115, 70, 0.25));
+    color: inherit;
 }
 
 .textLayer ::-moz-selection {
-    background: rgba(0, 0, 255, 0.3);
+    background: var(--selection-bg, rgba(33, 115, 70, 0.25));
+    color: inherit;
 }
 
 /* ===== 调试面板 ===== */
