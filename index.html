@@ -53,14 +53,14 @@
         <main>
             <div class="upload-wrapper" id="upload-wrapper">
                 <div class="upload-area" id="drop-zone">
-                    <input type="file" id="file-input" accept=".xlsx, .xls, .csv, .pdf" hidden>
+                    <input type="file" id="file-input" accept=".xlsx, .xls, .csv, .pdf, .docx" hidden>
                     <div class="upload-content">
                         <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <p class="upload-text">点击上传或拖拽文件到此处</p>
-                        <p class="upload-subtext">支持 .xlsx, .xls, .csv, .pdf 格式</p>
+                        <p class="upload-subtext">支持 .xlsx, .xls, .csv, .pdf, .docx 格式</p>
                     </div>
                 </div>
             </div>
@@ -90,10 +90,10 @@
             </div>
         </main>
     </div>
-    <!-- PDFium.js library - 使用 CDN 版本，支持本地预览 -->
-    <!-- PDFium.js 将在 pdf-viewer.js 中动态加载 -->
+    <!-- PDFium.js 在 pdf-viewer.js 中动态加载；docx-preview 在 docx-viewer.js 中动态加载 -->
     <script src="excel-viewer.js"></script>
     <script src="pdf-viewer.js"></script>
+    <script src="docx-viewer.js"></script>
     <script src="script.js"></script>
 </body>
 

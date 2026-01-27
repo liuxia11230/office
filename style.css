@@ -815,6 +815,48 @@ main {
     color: inherit;
 }
 
+/* ===== DOCX Viewer 样式（与 PDF 左侧导航一致） ===== */
+.docx-viewer-container {
+    width: 100%;
+    height: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.docx-main-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.docx-sidebar {
+    flex-shrink: 0;
+    transition: width 0.3s;
+    background: #2b2b2b;
+    border-right: 1px solid #444;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.docx-content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.docx-toolbar {
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+.docx-viewer-wrap {
+    -webkit-overflow-scrolling: touch;
+}
+
 /* ===== 调试面板 ===== */
 .debug-panel {
     position: fixed;

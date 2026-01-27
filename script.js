@@ -36,6 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
         controls
     });
 
+    const docxViewer = new DOCXViewer({
+        previewContainer,
+        uploadWrapper,
+        controls
+    });
+
     // ==========================================
     // 文件处理
     // ==========================================
@@ -59,21 +65,33 @@ document.addEventListener('DOMContentLoaded', () => {
         
         try {
             if (fileExtension === 'xlsx' || fileExtension === 'xls') {
-                // Excel 文件 - 使用 ExcelViewer
                 pdfViewer.destroy();
-                // 显示 Excel 相关元素，隐藏 PDF 容器
+                docxViewer.destroy();
                 const tableWrapper = previewContainer.querySelector('.table-wrapper');
                 const pdfContainer = previewContainer.querySelector('.pdf-viewer-container');
+                const docxContainer = previewContainer.querySelector('.docx-viewer-container');
                 const cellInfoBar = previewContainer.querySelector('.cell-info-bar');
+                if (sheetTabs) sheetTabs.style.display = '';
                 if (tableWrapper) tableWrapper.style.display = '';
                 if (pdfContainer) pdfContainer.style.display = 'none';
+                if (docxContainer) docxContainer.style.display = 'none';
                 if (cellInfoBar) cellInfoBar.style.display = '';
                 await excelViewer.loadFile(file);
             } else if (fileExtension === 'pdf') {
-                // PDF 文件 - 使用 PDFViewer
+                docxViewer.destroy();
+                if (sheetTabs) sheetTabs.style.display = 'none';
                 await pdfViewer.loadFile(file);
+            } else if (fileExtension === 'docx') {
+                pdfViewer.destroy();
+                if (sheetTabs) sheetTabs.style.display = 'none';
+                const tableWrapper = previewContainer.querySelector('.table-wrapper');
+                const pdfContainer = previewContainer.querySelector('.pdf-viewer-container');
+                const cellInfoBar = previewContainer.querySelector('.cell-info-bar');
+                if (tableWrapper) tableWrapper.style.display = 'none';
+                if (pdfContainer) pdfContainer.style.display = 'none';
+                if (cellInfoBar) cellInfoBar.style.display = 'none';
+                await docxViewer.loadFile(file);
             } else {
-                // 其他格式（后续可以添加 DOC 等）
                 alert('暂不支持 ' + fileExtension.toUpperCase() + ' 格式');
             }
         } catch (err) {
